@@ -145,19 +145,37 @@ def create_progress_bar(percent):
     bar = "█" * filled + "░" * (10 - filled)
     return f"[{bar}] {percent}%"
 
+def human_delay(min_s=1.0, max_s=3.5):
+    time.sleep(random.uniform(min_s, max_s))
+
 def click_cadastro(page):
-    for sel in ["a[href*='signup']", "a[href*='register']", "button:has-text('Cadastre')", "a:has-text('Cadastre')", "button:has-text('Sign up')", "a:has-text('Sign up')"]:
+    # Tenta primeiro os seletores mais rápidos e comuns
+    selectors = [
+        "a[href*='signup']",
+        "a[href*='register']",
+        "button:has-text('Cadastre-se')",
+        "a:has-text('Cadastre-se')",
+        "button:has-text('Sign up')",
+        "a:has-text('Sign up')",
+    ]
+
+    for sel in selectors:
         try:
             el = page.locator(sel).first
-            el.wait_for(timeout=5000)
+            el.wait_for(timeout=3000)  # tempo menor pra ser mais rápido
             el.click()
             return True
-        except: continue
+        except:
+            continue
+
+    # Fallback com get_by_text (um pouco mais lento)
     for texto in ["Cadastre-se gratuitamente", "Sign up for free", "Sign up", "Cadastre"]:
         try:
-            page.get_by_text(texto, exact=False).first.click(timeout=5000)
+            page.get_by_text(texto, exact=False).first.click(timeout=4000)
             return True
-        except: continue
+        except:
+            continue
+
     return False
 
 def safe_fill(page, selector, value, timeout=8000):
