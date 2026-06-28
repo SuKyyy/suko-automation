@@ -2,6 +2,8 @@ import os
 import time
 import random
 import datetime
+import signal
+import sys
 import requests
 from dotenv import load_dotenv
 
@@ -13,8 +15,25 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
+shutdown_flag = False
+
+def signal_handler(sig, frame):
+    global shutdown_flag
+    print("\n\n[Ctrl+C] Sinal de encerramento recebido...")
+    shutdown_flag = True
+
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
+
 def get_conn():
     return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+
+def cancel_all_running_jobs():
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE jobs SET status='cancelado' WHERE status IN ('running', 'waiting_code')")
+        conn.commit()
+    print("[Shutdown] Jobs ativos foram cancelados no banco.")
 
 def get_active_job():
     with get_conn() as conn:
@@ -201,7 +220,7 @@ def wait_for_code(chat_id, job_id, timeout=300):
     print("Aguardando codigo pelo Telegram...")
     start = time.time()
     while time.time() - start < timeout:
-        if is_job_cancelled(job_id):
+        if is_job_cancelled(job_id) or shutdown_flag:
             print("Job cancelado durante espera de codigo.")
             return None
         row = get_codigo(chat_id)
@@ -266,8 +285,8 @@ def run_job(job):
 
     try:
         for i, conta in enumerate(pool, 1):
-            if is_job_cancelled(job_id):
-                send_message(chat_id, "Job cancelado pelo admin.")
+            if is_job_cancelled(job_id) or shutdown_flag:
+                send_message(chat_id, "Job cancelado.")
                 break
 
             percent = int((i / total) * 100)
@@ -281,7 +300,6 @@ def run_job(job):
 
             print(f"\n=== Criando: {email} ===")
 
-            # Mensagem de progresso da conta (será editada)
             progress_text = f"📌 Criando conta: `{email}`\n\n⏳ Iniciando cadastro..."
             msg_id = send_message(chat_id, progress_text)
 
@@ -384,6 +402,9 @@ def run_job(job):
                 except:
                     pass
                 human_delay(5, 8)
+
+            if shutdown_flag:
+                break
     finally:
         try:
             browser.close()
@@ -395,17 +416,28 @@ def run_job(job):
 
 def main():
     print("Worker iniciado - aguardando jobs...\n")
-    while True:
-        try:
-            job = get_active_job()
-            if job:
-                print(f"Job encontrado! ID: {job['id']} | user: {job['user_id']}")
-                run_job(job)
-            else:
-                print("Sem jobs. Checando em 5s...", end="\r")
-        except Exception as e:
-            print(f"Erro no loop: {e}")
-        time.sleep(5)
+    global shutdown_flag
+    try:
+        while not shutdown_flag:
+            try:
+                job = get_active_job()
+                if job:
+                    print(f"Job encontrado! ID: {job['id']} | user: {job['user_id']}")
+                    run_job(job)
+                else:
+                    if not shutdown_flag:
+                        print("Sem jobs. Checando em 5s...", end="\r")
+            except Exception as e:
+                print(f"Erro no loop: {e}")
+            if not shutdown_flag:
+                time.sleep(5)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        print("\n[Shutdown] Encerrando worker de forma segura...")
+        cancel_all_running_jobs()
+        print("Worker finalizado com segurança.")
+        sys.exit(0)
 
 if __name__ == "__main__":
     main()
