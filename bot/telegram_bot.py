@@ -17,6 +17,9 @@ logger = logging.getLogger(__name__)
 
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 
+# Buffer por chat para juntar fragmentos de mensagem
+fragmento_buffer = {}
+
 def menu_principal():
     keyboard = [
         [InlineKeyboardButton("📋 Ver Pool", callback_data="pool"),
@@ -35,54 +38,73 @@ def gerar_nascimento():
     dia = random.randint(1, max_dia)
     return f"{dia:02d}/{mes:02d}/{ano}"
 
-def parse_linha(linha):
-    linha = linha.strip()
-    if not linha or "@" not in linha:
+def parse_conta(texto):
+    """
+    Tenta extrair (email, senha, nome) de um texto qualquer.
+    Divide sempre nas primeiras 2 ocorrencias de : para nao quebrar senha/nome.
+    Retorna (email, senha, nome) ou None.
+    """
+    texto = texto.strip()
+    if not texto or "@" not in texto:
         return None
-    partes = linha.split(":", 2)
+
+    # Divide nas primeiras 2 ocorrencias de :
+    partes = texto.split(":", 2)
     if len(partes) == 3:
-        email, senha, nome = partes[0].strip(), partes[1].strip(), partes[2].strip()
-        if "@" in email and senha and nome:
+        email = partes[0].strip()
+        senha = partes[1].strip()
+        nome = partes[2].strip()
+        if "@" in email and "." in email and senha and nome:
             return email, senha, nome
-    partes = linha.split(" ", 2)
-    if len(partes) >= 3:
-        email, senha, nome = partes[0].strip(), partes[1].strip(), partes[2].strip()
-        if "@" in email and senha and nome:
+
+    # Tenta com espaco como separador
+    partes = texto.split(None, 2)  # split por qualquer whitespace
+    if len(partes) == 3:
+        email = partes[0].strip()
+        senha = partes[1].strip()
+        nome = partes[2].strip()
+        if "@" in email and "." in email and senha and nome:
             return email, senha, nome
-    if len(partes) == 2:
-        email, senha = partes[0].strip(), partes[1].strip()
-        if "@" in email and senha:
-            return email, senha, "Usuario"
+
     return None
 
 def processar_texto(text):
+    """Processa uma ou mais linhas, retorna (adicionadas, erros, sobrou_fragmento)."""
     adicionadas = []
     erros = []
+    fragmento = None
+
     linhas = [l.strip() for l in text.splitlines() if l.strip()]
-    processadas = set()
 
-    for i, linha in enumerate(linhas):
-        resultado = parse_linha(linha)
+    i = 0
+    while i < len(linhas):
+        linha = linhas[i]
+        resultado = parse_conta(linha)
         if resultado:
             email, senha, nome = resultado
             add_to_pool(email, senha, nome, gerar_nascimento())
             adicionadas.append(f"{email} | {nome}")
-            processadas.add(i)
+            i += 1
+        elif "@" in linha:
+            # Tem email mas nao fechou — pode ser fragmento quebrado pelo Telegram
+            # Tenta juntar com a proxima linha
+            if i + 1 < len(linhas):
+                junto = linha + linhas[i+1]
+                resultado = parse_conta(junto)
+                if resultado:
+                    email, senha, nome = resultado
+                    add_to_pool(email, senha, nome, gerar_nascimento())
+                    adicionadas.append(f"{email} | {nome}")
+                    i += 2
+                    continue
+            # Guarda como fragmento para a proxima mensagem
+            fragmento = linha
+            i += 1
+        else:
+            # Linha sem @ — pode ser continuacao de fragmento anterior
+            i += 1
 
-    sobras = [linhas[i] for i in range(len(linhas)) if i not in processadas]
-    if sobras:
-        junto = " ".join(sobras)
-        resultado = parse_linha(junto)
-        if resultado:
-            email, senha, nome = resultado
-            add_to_pool(email, senha, nome, gerar_nascimento())
-            adicionadas.append(f"{email} | {nome}")
-        elif any("@" in s for s in sobras):
-            for s in sobras:
-                if "@" in s:
-                    erros.append(f"Nao consegui processar: {s[:50]}")
-
-    return adicionadas, erros
+    return adicionadas, erros, fragmento
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     init_db()
@@ -91,7 +113,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=menu_principal()
     )
 
-async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def menu_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🤖 Menu Principal", reply_markup=menu_principal())
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -122,6 +144,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "clear":
         clear_pool()
+        fragmento_buffer.clear()
         await query.edit_message_text("🗑️ Pool limpa!", reply_markup=menu_principal())
 
     elif data == "status":
@@ -167,17 +190,33 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     logger.info(f"[MSG] chat_id={chat_id} | texto={repr(text)}")
 
+    # Codigo de verificacao (so numeros, sem @)
     if is_waiting_code(chat_id) and "@" not in text:
         save_codigo(chat_id, text.strip())
         await update.message.reply_text("✅ Codigo salvo! O worker vai pegar automaticamente.")
         return
 
-    if "@" in text:
-        adicionadas, erros = processar_texto(text)
+    # Se tem @ ou tem fragmento pendente, tenta processar como conta
+    tem_fragmento = chat_id in fragmento_buffer
+    if "@" in text or tem_fragmento:
+        # Junta fragmento anterior se existir
+        if tem_fragmento:
+            texto_completo = fragmento_buffer.pop(chat_id) + text
+            logger.info(f"[FRAGMENTO] Juntando: {repr(texto_completo)}")
+        else:
+            texto_completo = text
+
+        adicionadas, erros, fragmento = processar_texto(texto_completo)
+
+        # Guarda fragmento para proxima mensagem
+        if fragmento:
+            fragmento_buffer[chat_id] = fragmento
+            logger.info(f"[FRAGMENTO] Guardando: {repr(fragmento)}")
+
         if adicionadas:
             resposta = f"✅ {len(adicionadas)} conta(s) adicionada(s):\n" + "\n".join(adicionadas)
-            if erros:
-                resposta += "\n\n❌ Erros:\n" + "\n".join(erros)
+            if fragmento:
+                resposta += "\n\n⏳ Aguardando continuacao da ultima conta..."
             await update.message.reply_text(
                 resposta,
                 reply_markup=InlineKeyboardMarkup([[
@@ -186,6 +225,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ]])
             )
             return
+        elif fragmento:
+            # So tem fragmento, aguarda proxima mensagem silenciosamente
+            return
         elif erros:
             await update.message.reply_text("❌ Nao consegui processar:\n" + "\n".join(erros))
             return
@@ -193,18 +235,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Usa os botoes abaixo:", reply_markup=menu_principal())
 
 async def run_bot():
-    """Roda o bot, ignorando conflito temporário até a instância anterior morrer."""
     init_db()
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("menu", menu))
+    app.add_handler(CommandHandler("menu", menu_cmd))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     await app.initialize()
     await app.start()
 
-    # Tenta iniciar polling — se der conflito, espera a outra instância morrer
     retry = 0
     while True:
         try:
@@ -215,10 +255,9 @@ async def run_bot():
         except Conflict:
             retry += 1
             wait = min(10 * retry, 60)
-            logger.warning(f"Conflito detectado. Aguardando {wait}s para a outra instancia morrer...")
+            logger.warning(f"Conflito. Aguardando {wait}s...")
             await asyncio.sleep(wait)
 
-    # Mantém rodando
     await asyncio.Event().wait()
 
 def main():
