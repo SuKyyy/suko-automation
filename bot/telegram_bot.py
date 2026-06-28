@@ -1,13 +1,19 @@
 import os
 import random
 import datetime
+import asyncio
+import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
+from telegram.error import Conflict
 from db import (
     init_db, add_to_pool, get_pool, clear_pool,
     get_active_job, create_job, save_codigo,
     is_waiting_code, get_resultados
 )
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 
@@ -30,50 +36,28 @@ def gerar_nascimento():
     return f"{dia:02d}/{mes:02d}/{ano}"
 
 def parse_linha(linha):
-    """
-    Tenta extrair (email, senha, nome) de uma linha.
-    Aceita:
-      - email:senha:nome
-      - email senha nome  (separado por espaço, se email vier primeiro)
-    Retorna (email, senha, nome) ou None se não conseguir.
-    """
     linha = linha.strip()
     if not linha or "@" not in linha:
         return None
-
-    # Tenta separar por : primeiro
-    # Divide só nas 2 primeiras ocorrências de :
     partes = linha.split(":", 2)
     if len(partes) == 3:
         email, senha, nome = partes[0].strip(), partes[1].strip(), partes[2].strip()
         if "@" in email and senha and nome:
             return email, senha, nome
-
-    # Tenta separar por espaço: email senha resto_é_nome
     partes = linha.split(" ", 2)
     if len(partes) >= 3:
         email, senha, nome = partes[0].strip(), partes[1].strip(), partes[2].strip()
         if "@" in email and senha and nome:
             return email, senha, nome
-
-    # Tem email e senha mas sem nome — gera nome genérico
     if len(partes) == 2:
         email, senha = partes[0].strip(), partes[1].strip()
         if "@" in email and senha:
             return email, senha, "Usuario"
-
     return None
 
 def processar_texto(text):
-    """
-    Junta todas as linhas do texto e tenta montar contas.
-    Lida com mensagens quebradas pelo Telegram.
-    Retorna (adicionadas, erros).
-    """
     adicionadas = []
     erros = []
-
-    # Tenta processar linha por linha primeiro
     linhas = [l.strip() for l in text.splitlines() if l.strip()]
     processadas = set()
 
@@ -81,39 +65,34 @@ def processar_texto(text):
         resultado = parse_linha(linha)
         if resultado:
             email, senha, nome = resultado
-            nascimento = gerar_nascimento()
-            add_to_pool(email, senha, nome, nascimento)
+            add_to_pool(email, senha, nome, gerar_nascimento())
             adicionadas.append(f"{email} | {nome}")
             processadas.add(i)
 
-    # Linhas não processadas que tenham @ podem ser fragmentos — tenta juntar com próxima
     sobras = [linhas[i] for i in range(len(linhas)) if i not in processadas]
     if sobras:
-        # Tenta juntar tudo numa linha só e reprocessar
         junto = " ".join(sobras)
         resultado = parse_linha(junto)
         if resultado:
             email, senha, nome = resultado
-            nascimento = gerar_nascimento()
-            add_to_pool(email, senha, nome, nascimento)
+            add_to_pool(email, senha, nome, gerar_nascimento())
             adicionadas.append(f"{email} | {nome}")
-        elif sobras:
+        elif any("@" in s for s in sobras):
             for s in sobras:
                 if "@" in s:
-                    erros.append(f"Não consegui processar: {s[:50]}")
+                    erros.append(f"Nao consegui processar: {s[:50]}")
 
     return adicionadas, erros
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     init_db()
     await update.message.reply_text(
-        "🤖 *SuKo-9000 BLACK EDITION*\n\nSeleciona o que queres fazer:",
-        parse_mode="Markdown",
+        "🤖 SuKo-9000 BLACK EDITION\n\nSeleciona o que queres fazer:",
         reply_markup=menu_principal()
     )
 
 async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🤖 *Menu Principal*", parse_mode="Markdown", reply_markup=menu_principal())
+    await update.message.reply_text("🤖 Menu Principal", reply_markup=menu_principal())
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -136,11 +115,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "➕ Adicionar conta\n\n"
             "Manda no formato:\n"
             "email:senha:Nome Completo\n\n"
-            "Exemplos:\n"
-            "teste@gmail.com:Senha123:Joao Silva\n"
-            "outro@gmail.com:Pass456!?:Tony\n\n"
-            "Pode mandar várias de uma vez, uma por linha.\n"
-            "A data de nascimento é gerada automaticamente.",
+            "Pode mandar varias de uma vez, uma por linha.\n"
+            "A data de nascimento e gerada automaticamente.",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 Menu", callback_data="pool")]])
         )
 
@@ -189,18 +165,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     text = update.message.text.strip()
 
-    print(f"[MSG] chat_id={chat_id} | texto={repr(text)}")
+    logger.info(f"[MSG] chat_id={chat_id} | texto={repr(text)}")
 
-    # Código de verificação tem prioridade (só se não tiver @ na msg)
     if is_waiting_code(chat_id) and "@" not in text:
         save_codigo(chat_id, text.strip())
         await update.message.reply_text("✅ Codigo salvo! O worker vai pegar automaticamente.")
         return
 
-    # Se tiver @ na mensagem, tenta processar como conta
     if "@" in text:
         adicionadas, erros = processar_texto(text)
-
         if adicionadas:
             resposta = f"✅ {len(adicionadas)} conta(s) adicionada(s):\n" + "\n".join(adicionadas)
             if erros:
@@ -217,18 +190,39 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Nao consegui processar:\n" + "\n".join(erros))
             return
 
-    # Fallback
     await update.message.reply_text("Usa os botoes abaixo:", reply_markup=menu_principal())
 
-def main():
+async def run_bot():
+    """Roda o bot, ignorando conflito temporário até a instância anterior morrer."""
     init_db()
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("menu", menu))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print("🤖 SuKo-9000 Telegram Bot rodando...")
-    app.run_polling()
+
+    await app.initialize()
+    await app.start()
+
+    # Tenta iniciar polling — se der conflito, espera a outra instância morrer
+    retry = 0
+    while True:
+        try:
+            logger.info(f"Iniciando polling (tentativa {retry + 1})...")
+            await app.updater.start_polling(drop_pending_updates=True)
+            logger.info("🤖 SuKo-9000 rodando!")
+            break
+        except Conflict:
+            retry += 1
+            wait = min(10 * retry, 60)
+            logger.warning(f"Conflito detectado. Aguardando {wait}s para a outra instancia morrer...")
+            await asyncio.sleep(wait)
+
+    # Mantém rodando
+    await asyncio.Event().wait()
+
+def main():
+    asyncio.run(run_bot())
 
 if __name__ == "__main__":
     main()
