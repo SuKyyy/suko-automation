@@ -229,7 +229,7 @@ def click_concluir(page):
         pass
     return False
 
-def wait_for_code(chat_id, job_id, timeout=300):
+def wait_for_code(chat_id, job_id, timeout=120):
     print("Aguardando codigo pelo Telegram...")
     start = time.time()
     while time.time() - start < timeout:
@@ -244,29 +244,50 @@ def wait_for_code(chat_id, job_id, timeout=300):
     return None
 
 def preencher_nome_idade(page, nome, nascimento):
+    # Tenta preencher nome
     for sel in ["input[name='name']", "input[placeholder*='nome' i]", "input[placeholder*='name' i]", "input[type='text']"]:
         if safe_fill(page, sel, nome): break
     human_delay(0.5, 1)
 
-    preencheu = False
+    # Tenta preencher data de nascimento ou idade
+    preencheu_data = False
     try:
-        el = page.locator("input[type='date']").first
+        # Tenta campo de data primeiro (DD/MM/YYYY)
+        el = page.locator("input[type='date'], input[placeholder*='nascimento' i], input[placeholder*='data' i], input[placeholder*='birth' i]").first
         el.wait_for(timeout=2000)
         partes = nascimento.split("/")
-        data_iso = f"{partes[2]}-{partes[1]}-{partes[0]}" if len(partes) == 3 else nascimento
-        el.fill(data_iso)
-        preencheu = True
+        if len(partes) == 3:
+            # Formato DD/MM/YYYY
+            el.fill(nascimento)
+        else:
+            el.fill(nascimento)
+        preencheu_data = True
     except:
         pass
 
-    if not preencheu:
+    if not preencheu_data:
+        try:
+            el = page.locator("input[type='date']").first
+            el.wait_for(timeout=1500)
+            partes = nascimento.split("/")
+            if len(partes) == 3:
+                data_iso = f"{partes[2]}-{partes[1]}-{partes[0]}"
+                el.fill(data_iso)
+            else:
+                el.fill(nascimento)
+            preencheu_data = True
+        except:
+            pass
+
+    if not preencheu_data:
+        # Fallback para campo de idade
         idade = calcular_idade(nascimento)
         for sel in ["input[type='number']", "input[placeholder*='idade' i]", "input[placeholder*='age' i]", "input[name*='age' i]"]:
             if safe_fill(page, sel, idade):
-                preencheu = True
+                preencheu_data = True
                 break
-    if not preencheu:
-        idade = calcular_idade(nascimento)
+
+    if not preencheu_data:
         try:
             inputs = page.locator("input[type='text'], input[type='number']").all()
             if len(inputs) >= 2:
@@ -309,7 +330,6 @@ def run_job(job):
 
             print(f"\n=== Criando: {email} ===")
 
-            # === UMA MENSAGEM SÓ POR CONTA ===
             progress = f"""\ud83d\udccc {email}
 
 Estado: Iniciando cadastro...
@@ -348,30 +368,30 @@ Progresso: [          ] 0%"""
 
                 ajustar_saldo(chat_id, -preco)
 
-                # === DETECÇÃO DE PULAR CÓDIGO ===
+                # === DETECÇÃO MELHORADA DE PULAR CÓDIGO ===
+                human_delay(3, 5)
+
+                # Verifica se já foi direto pra tela de nome/data de nascimento
                 try:
-                    page.wait_for_selector("text=Quantos anos", timeout=6000)
-                    # PULOU O CÓDIGO - vai direto pro nome/idade
-                    edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Pulou etapa de c\u00f3digo \u2705\nProgresso: [\u2588\u2588\u2588\u2588\u2588\u2588    ] 60%\n\nPreenchendo nome e idade...")
+                    page.wait_for_selector("text=Quantos anos, text=Vamos confirmar a sua idade, input[placeholder*='nascimento' i], input[placeholder*='data' i]", timeout=6000)
+                    edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Pulou etapa de c\u00f3digo \u2705\nProgresso: [\u2588\u2588\u2588\u2588\u2588\u2588    ] 60%\n\nPreenchendo nome e data de nascimento...")
                     preencher_nome_idade(page, nome, nascimento)
 
                 except:
-                    # CAMINHO NORMAL - pede c\u00f3digo
                     edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Aguardando c\u00f3digo no Telegram...\nProgresso: [\u2588\u2588\u2588\u2588    ] 50%")
 
                     send_message(chat_id, f"{email}\nPrecisa do c\u00f3digo de verifica\u00e7\u00e3o (6 d\u00edgitos).\n\nManda aqui:")
 
-                    code = wait_for_code(chat_id, job_id, timeout=300)
+                    code = wait_for_code(chat_id, job_id, timeout=120)
 
                     if not code:
-                        edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\n\u274c Timeout. Reembolsando...")
+                        edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\n\u274c Timeout (2 min). Reembolsando...")
                         ajustar_saldo(chat_id, preco)
                         log_resultado(user_id, email, "TIMEOUT")
                         update_pool_status(user_id, email, "timeout")
                         page.close()
                         continue
 
-                    # Preencher c\u00f3digo
                     edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Colocando c\u00f3digo...\nProgresso: [\u2588\u2588\u2588\u2588\u2588    ] 70%")
 
                     preencheu = False
@@ -389,13 +409,11 @@ Progresso: [          ] 0%"""
                     page.keyboard.press("Enter")
                     human_delay(3, 5)
 
-                    # Depois do c\u00f3digo vai pro nome/idade
-                    edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Preenchendo nome e idade...\nProgresso: [\u2588\u2588\u2588\u2588\u2588\u2588    ] 80%")
+                    edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Preenchendo nome e data de nascimento...\nProgresso: [\u2588\u2588\u2588\u2588\u2588\u2588    ] 80%")
                     preencher_nome_idade(page, nome, nascimento)
 
                 human_delay(2, 4)
 
-                # FINAL
                 try:
                     page.wait_for_selector("text=ChatGPT", timeout=10000)
                     edit_message(chat_id, msg_id, f"""\ud83d\udccc {email}
