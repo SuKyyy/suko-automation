@@ -293,7 +293,7 @@ def run_job(job):
         return
 
     total = len(pool)
-    send_message(chat_id, "Job iniciado! Processando {} conta(s)...".format(total))
+    send_message(chat_id, f"Job iniciado! Processando {total} conta(s)...")
     browser = launch(headless=False, humanize=True)
 
     try:
@@ -302,19 +302,19 @@ def run_job(job):
                 send_message(chat_id, "Job cancelado.")
                 break
 
-            percent = int((i / total) * 100)
-            bar = create_progress_bar(percent)
-            send_message(chat_id, "Progresso do Job\n{} ({}/{}) contas".format(bar, i, total))
-
             email = conta['email']
             senha = conta['senha']
             nome = conta.get('nome', '')
             nascimento = conta.get('nascimento', '')
 
-            print("\n=== Criando: {} ===".format(email))
+            print(f"\n=== Criando: {email} ===")
 
-            progress_text = "Criando conta: {}\n\nIniciando cadastro...".format(email)
-            msg_id = send_message(chat_id, progress_text)
+            # === UMA MENSAGEM SÓ POR CONTA ===
+            progress = f"""\ud83d\udccc {email}
+
+Estado: Iniciando cadastro...
+Progresso: [          ] 0%"""
+            msg_id = send_message(chat_id, progress)
 
             page = browser.new_page()
             try:
@@ -323,13 +323,13 @@ def run_job(job):
                 human_delay(2, 4)
 
                 if not click_cadastro(page):
-                    edit_message(chat_id, msg_id, "Criando conta: {}\n\nFalha ao encontrar botao de cadastro.".format(email))
+                    edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\n\u274c Falha ao encontrar bot\u00e3o de cadastro.")
                     log_resultado(user_id, email, "ERRO_CADASTRO")
                     update_pool_status(user_id, email, "erro")
                     page.close()
                     continue
 
-                edit_message(chat_id, msg_id, "Criando conta: {}\n\nCadastro iniciado\nColocando email...".format(email))
+                edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Colocando email...\nProgresso: [\u2588\u2588        ] 20%")
                 human_delay(1, 2)
 
                 for sel in ["input[type='email']", "input[name='email']", "input[placeholder*='email' i]"]:
@@ -337,39 +337,42 @@ def run_job(job):
                 page.keyboard.press("Enter")
                 human_delay(2, 3)
 
-                edit_message(chat_id, msg_id, "Criando conta: {}\n\nEmail colocado\nColocando senha...".format(email))
+                edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Colocando senha...\nProgresso: [\u2588\u2588\u2588\u2588    ] 40%")
                 safe_click_text(page, "Continuar com uma senha", "Continue with a password")
                 human_delay(1.5, 3)
 
                 for sel in ["input[type='password']", "input[name='password']"]:
                     if safe_fill(page, sel, senha): break
                 page.keyboard.press("Enter")
-                human_delay(2, 4)
+                human_delay(3, 5)
 
                 ajustar_saldo(chat_id, -preco)
 
-                human_delay(3, 5)
-
+                # === DETECÇÃO DE PULAR CÓDIGO ===
                 try:
-                    page.wait_for_selector("text=Quantos anos", timeout=7000)
-                    edit_message(chat_id, msg_id, "Criando conta: {}\n\nSenha colocada\nPreenchendo nome e idade...".format(email))
+                    page.wait_for_selector("text=Quantos anos", timeout=6000)
+                    # PULOU O CÓDIGO - vai direto pro nome/idade
+                    edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Pulou etapa de c\u00f3digo \u2705\nProgresso: [\u2588\u2588\u2588\u2588\u2588\u2588    ] 60%\n\nPreenchendo nome e idade...")
                     preencher_nome_idade(page, nome, nascimento)
-                except:
-                    set_waiting_code(chat_id, True)
-                    edit_message(chat_id, msg_id, "Criando conta: {}\n\nSenha colocada\nAguardando codigo no Telegram...".format(email))
 
-                    send_message(chat_id, "Conta {} precisa do codigo de verificacao.\n\nManda so o codigo de 6 digitos.".format(email))
+                except:
+                    # CAMINHO NORMAL - pede c\u00f3digo
+                    edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Aguardando c\u00f3digo no Telegram...\nProgresso: [\u2588\u2588\u2588\u2588    ] 50%")
+
+                    send_message(chat_id, f"{email}\nPrecisa do c\u00f3digo de verifica\u00e7\u00e3o (6 d\u00edgitos).\n\nManda aqui:")
 
                     code = wait_for_code(chat_id, job_id, timeout=300)
-                    set_waiting_code(chat_id, False)
 
                     if not code:
-                        edit_message(chat_id, msg_id, "Criando conta: {}\n\nTimeout ou cancelado. Reembolsando...".format(email))
+                        edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\n\u274c Timeout. Reembolsando...")
                         ajustar_saldo(chat_id, preco)
                         log_resultado(user_id, email, "TIMEOUT")
                         update_pool_status(user_id, email, "timeout")
                         page.close()
                         continue
+
+                    # Preencher c\u00f3digo
+                    edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Colocando c\u00f3digo...\nProgresso: [\u2588\u2588\u2588\u2588\u2588    ] 70%")
 
                     preencheu = False
                     for sel in ["input[placeholder*='digito' i]", "input[placeholder*='codigo' i]", "input[placeholder*='code' i]", "input[name*='code' i]", "input[inputmode='numeric']", "input[type='text']"]:
@@ -386,33 +389,31 @@ def run_job(job):
                     page.keyboard.press("Enter")
                     human_delay(3, 5)
 
-                    try:
-                        page.wait_for_selector("text=Quantos anos", timeout=8000)
-                        edit_message(chat_id, msg_id, "Criando conta: {}\n\nCodigo recebido\nPreenchendo nome e idade...".format(email))
-                        preencher_nome_idade(page, nome, nascimento)
-                    except:
-                        try:
-                            page.wait_for_selector("input[placeholder*='nome' i], input[placeholder*='name' i]", timeout=5000)
-                            edit_message(chat_id, msg_id, "Criando conta: {}\n\nCodigo recebido\nPreenchendo nome e idade...".format(email))
-                            preencher_nome_idade(page, nome, nascimento)
-                        except:
-                            pass
+                    # Depois do c\u00f3digo vai pro nome/idade
+                    edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Preenchendo nome e idade...\nProgresso: [\u2588\u2588\u2588\u2588\u2588\u2588    ] 80%")
+                    preencher_nome_idade(page, nome, nascimento)
 
                 human_delay(2, 4)
 
+                # FINAL
                 try:
                     page.wait_for_selector("text=ChatGPT", timeout=10000)
-                    edit_message(chat_id, msg_id, "Criando conta: {}\n\nConta criada com sucesso!".format(email))
+                    edit_message(chat_id, msg_id, f"""\ud83d\udccc {email}
+
+\u2705 CONTA CRIADA COM SUCESSO!
+
+Email: `{email}`
+Copie e cole aqui: https://tempmailsuko.shop/en/infinity""")
                     log_resultado(user_id, email, "SUCESSO")
                     update_pool_status(user_id, email, "done")
                 except:
-                    edit_message(chat_id, msg_id, "Criando conta: {}\n\nPode precisar de verificacao manual.".format(email))
+                    edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\n\u26a0️ Pode precisar de verifica\u00e7\u00e3o manual.\n\nEmail: `{email}`")
                     log_resultado(user_id, email, "VERIFICAR")
                     update_pool_status(user_id, email, "verificar")
                     ajustar_saldo(chat_id, preco)
 
             except Exception as e:
-                edit_message(chat_id, msg_id, "Criando conta: {}\n\nErro: {}".format(email, str(e)[:60]))
+                edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\n\u274c Erro: {str(e)[:80]}")
                 log_resultado(user_id, email, "ERRO")
                 update_pool_status(user_id, email, "erro")
                 ajustar_saldo(chat_id, preco)
@@ -442,13 +443,13 @@ def main():
             try:
                 job = get_active_job()
                 if job:
-                    print("Job encontrado! ID: {} | user: {}".format(job['id'], job['user_id']))
+                    print(f"Job encontrado! ID: {job['id']} | user: {job['user_id']}")
                     run_job(job)
                 else:
                     if not shutdown_flag:
                         print("Sem jobs. Checando em 5s...", end="\r")
             except Exception as e:
-                print("Erro no loop: {}".format(e))
+                print(f"Erro no loop: {e}")
             if not shutdown_flag:
                 time.sleep(5)
     except KeyboardInterrupt:
@@ -456,7 +457,7 @@ def main():
     finally:
         print("\n[Shutdown] Encerrando worker de forma segura...")
         cancel_all_running_jobs()
-        print("Worker finalizado com seguranca.")
+        print("Worker finalizado com seguran\u00e7a.")
         sys.exit(0)
 
 if __name__ == "__main__":
