@@ -244,28 +244,24 @@ def wait_for_code(chat_id, job_id, timeout=120):
     return None
 
 def preencher_nome_idade(page, nome, nascimento):
-    # Tenta preencher nome
     for sel in ["input[name='name']", "input[placeholder*='nome' i]", "input[placeholder*='name' i]", "input[type='text']"]:
         if safe_fill(page, sel, nome): break
     human_delay(0.5, 1)
 
-    # Tenta preencher data de nascimento ou idade
-    preencheu_data = False
+    preencheu = False
     try:
-        # Tenta campo de data primeiro (DD/MM/YYYY)
         el = page.locator("input[type='date'], input[placeholder*='nascimento' i], input[placeholder*='data' i], input[placeholder*='birth' i]").first
         el.wait_for(timeout=2000)
         partes = nascimento.split("/")
         if len(partes) == 3:
-            # Formato DD/MM/YYYY
             el.fill(nascimento)
         else:
             el.fill(nascimento)
-        preencheu_data = True
+        preencheu = True
     except:
         pass
 
-    if not preencheu_data:
+    if not preencheu:
         try:
             el = page.locator("input[type='date']").first
             el.wait_for(timeout=1500)
@@ -273,21 +269,18 @@ def preencher_nome_idade(page, nome, nascimento):
             if len(partes) == 3:
                 data_iso = f"{partes[2]}-{partes[1]}-{partes[0]}"
                 el.fill(data_iso)
-            else:
-                el.fill(nascimento)
-            preencheu_data = True
+            preencheu = True
         except:
             pass
 
-    if not preencheu_data:
-        # Fallback para campo de idade
+    if not preencheu:
         idade = calcular_idade(nascimento)
         for sel in ["input[type='number']", "input[placeholder*='idade' i]", "input[placeholder*='age' i]", "input[name*='age' i]"]:
             if safe_fill(page, sel, idade):
-                preencheu_data = True
+                preencheu = True
                 break
 
-    if not preencheu_data:
+    if not preencheu:
         try:
             inputs = page.locator("input[type='text'], input[type='number']").all()
             if len(inputs) >= 2:
@@ -368,16 +361,24 @@ Progresso: [          ] 0%"""
 
                 ajustar_saldo(chat_id, -preco)
 
-                # === DETECÇÃO MELHORADA DE PULAR CÓDIGO ===
                 human_delay(3, 5)
 
-                # Verifica se já foi direto pra tela de nome/data de nascimento
+                # === DETECÇÃO MELHORADA ===
+                pulou_codigo = False
                 try:
-                    page.wait_for_selector("text=Quantos anos, text=Vamos confirmar a sua idade, input[placeholder*='nascimento' i], input[placeholder*='data' i]", timeout=6000)
+                    page.wait_for_selector("text=Quantos anos", timeout=4000)
+                    pulou_codigo = True
+                except:
+                    try:
+                        page.wait_for_selector("text=Vamos confirmar a sua idade", timeout=4000)
+                        pulou_codigo = True
+                    except:
+                        pass
+
+                if pulou_codigo:
                     edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Pulou etapa de c\u00f3digo \u2705\nProgresso: [\u2588\u2588\u2588\u2588\u2588\u2588    ] 60%\n\nPreenchendo nome e data de nascimento...")
                     preencher_nome_idade(page, nome, nascimento)
-
-                except:
+                else:
                     edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Aguardando c\u00f3digo no Telegram...\nProgresso: [\u2588\u2588\u2588\u2588    ] 50%")
 
                     send_message(chat_id, f"{email}\nPrecisa do c\u00f3digo de verifica\u00e7\u00e3o (6 d\u00edgitos).\n\nManda aqui:")
