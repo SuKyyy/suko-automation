@@ -19,31 +19,38 @@ def get_conn():
 def get_active_job():
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT * FROM jobs WHERE status IN ('running', 'waiting_code') ORDER BY criado_em DESC LIMIT 1")
+            cur.execute("SELECT * FROM jobs WHERE status='running' ORDER BY criado_em ASC LIMIT 1")
             return cur.fetchone()
 
-def get_pool():
+def get_pool(user_id):
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT * FROM pool WHERE status = 'pending' ORDER BY criado_em")
+            cur.execute("SELECT * FROM pool WHERE user_id=%s AND status='pending' ORDER BY criado_em", (user_id,))
             return cur.fetchall()
 
-def update_pool_status(email, status):
+def update_pool_status(user_id, email, status):
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("UPDATE pool SET status = %s WHERE email = %s", (status, email))
+            cur.execute("UPDATE pool SET status=%s WHERE user_id=%s AND email=%s", (status, user_id, email))
         conn.commit()
 
 def finish_job(job_id):
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("UPDATE jobs SET status = 'done' WHERE id = %s", (job_id,))
+            cur.execute("UPDATE jobs SET status='done' WHERE id=%s", (job_id,))
         conn.commit()
 
-def log_resultado(email, status):
+def is_job_cancelled(job_id):
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("INSERT INTO resultados (email, status) VALUES (%s, %s)", (email, status))
+            cur.execute("SELECT status FROM jobs WHERE id=%s", (job_id,))
+            row = cur.fetchone()
+            return row and row['status'] == 'cancelado'
+
+def log_resultado(user_id, email, status):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("INSERT INTO resultados (user_id, email, status) VALUES (%s, %s, %s)", (user_id, email, status))
         conn.commit()
 
 def set_waiting_code(chat_id, waiting):
@@ -51,7 +58,7 @@ def set_waiting_code(chat_id, waiting):
         with conn.cursor() as cur:
             status = 'waiting_code' if waiting else 'running'
             cur.execute(
-                "UPDATE jobs SET status = %s WHERE chat_id = %s AND status IN ('running', 'waiting_code')",
+                "UPDATE jobs SET status=%s WHERE chat_id=%s AND status IN ('running','waiting_code')",
                 (status, chat_id)
             )
         conn.commit()
@@ -60,7 +67,7 @@ def get_codigo(chat_id):
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT * FROM codigos WHERE chat_id = %s AND usado = FALSE ORDER BY criado_em DESC LIMIT 1",
+                "SELECT * FROM codigos WHERE chat_id=%s AND usado=FALSE ORDER BY criado_em DESC LIMIT 1",
                 (chat_id,)
             )
             return cur.fetchone()
@@ -68,12 +75,30 @@ def get_codigo(chat_id):
 def mark_codigo_usado(codigo_id):
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("UPDATE codigos SET usado = TRUE WHERE id = %s", (codigo_id,))
+            cur.execute("UPDATE codigos SET usado=TRUE WHERE id=%s", (codigo_id,))
+        conn.commit()
+
+def get_preco():
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT valor FROM configuracoes WHERE chave='preco_por_conta'")
+            row = cur.fetchone()
+            return float(row['valor']) if row else 1.0
+
+def ajustar_saldo(chat_id, valor):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE usuarios SET saldo = saldo + %s WHERE chat_id=%s",
+                (valor, chat_id)
+            )
         conn.commit()
 
 def send_message(chat_id, text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    requests.post(url, json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"})
+    try:
+        requests.post(url, json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}, timeout=10)
+    except: pass
 
 def human_delay(min_s=1.0, max_s=3.5):
     time.sleep(random.uniform(min_s, max_s))
@@ -84,39 +109,25 @@ def calcular_idade(nascimento_str):
     try:
         if len(partes) == 3:
             dia, mes, ano = int(partes[0]), int(partes[1]), int(partes[2])
-            nascimento = datetime.date(ano, mes, dia)
-            idade = hoje.year - nascimento.year - ((hoje.month, hoje.day) < (nascimento.month, nascimento.day))
-        else:
-            ano = int(partes[0])
-            idade = hoje.year - ano
-        return str(idade)
-    except Exception as e:
-        print(f"  Erro ao calcular idade de '{nascimento_str}': {e}")
+            nasc = datetime.date(ano, mes, dia)
+            return str(hoje.year - nasc.year - ((hoje.month, hoje.day) < (nasc.month, nasc.day)))
+        return str(hoje.year - int(partes[0]))
+    except:
         return "22"
 
 def click_cadastro(page):
-    seletores = [
-        "a[href*='signup']",
-        "a[href*='register']",
-        "button:has-text('Cadastre')",
-        "a:has-text('Cadastre')",
-        "button:has-text('Sign up')",
-        "a:has-text('Sign up')",
-    ]
-    for sel in seletores:
+    for sel in ["a[href*='signup']", "a[href*='register']", "button:has-text('Cadastre')", "a:has-text('Cadastre')", "button:has-text('Sign up')", "a:has-text('Sign up')"]:
         try:
             el = page.locator(sel).first
             el.wait_for(timeout=5000)
             el.click()
             return True
-        except:
-            continue
+        except: continue
     for texto in ["Cadastre-se gratuitamente", "Sign up for free", "Sign up", "Cadastre"]:
         try:
             page.get_by_text(texto, exact=False).first.click(timeout=5000)
             return True
-        except:
-            continue
+        except: continue
     return False
 
 def safe_fill(page, selector, value, timeout=8000):
@@ -130,15 +141,12 @@ def safe_fill(page, selector, value, timeout=8000):
         except: return False
 
 def safe_click_text(page, *textos, timeout=8000):
-    """Clica em texto, priorizando buttons sobre links."""
     for texto in textos:
-        # Tenta button primeiro (evita clicar em links como 'Termos de uso')
         try:
             page.locator(f"button:has-text('{texto}')").first.click(timeout=timeout)
             return True
         except: pass
     for texto in textos:
-        # Fallback: qualquer elemento com o texto
         try:
             page.get_by_text(texto, exact=True).first.click(timeout=timeout)
             return True
@@ -146,18 +154,14 @@ def safe_click_text(page, *textos, timeout=8000):
     return False
 
 def click_concluir(page):
-    """Clica especificamente no botao de concluir, nunca em links."""
-    textos = ["Concluir a cria\u00e7\u00e3o da conta", "Concluir", "Continue", "Submit", "Finish"]
-    for texto in textos:
+    for texto in ["Concluir a cria\u00e7\u00e3o da conta", "Concluir", "Continue", "Submit", "Finish"]:
         try:
             btn = page.locator(f"button:has-text('{texto}')").first
             btn.wait_for(timeout=3000)
             btn.scroll_into_view_if_needed()
             btn.click()
-            print(f"  Clicou em botao: {texto}")
             return True
         except: pass
-    # Fallback: pega o unico button visivel na pagina
     try:
         btns = page.locator("button[type='submit'], button[type='button']").all()
         for btn in btns:
@@ -165,78 +169,65 @@ def click_concluir(page):
             if any(p in txt.lower() for p in ["conclu", "continu", "submit", "finish"]):
                 btn.scroll_into_view_if_needed()
                 btn.click()
-                print(f"  Clicou em botao fallback: {txt}")
                 return True
     except: pass
     return False
 
-def wait_for_code(chat_id, timeout=300):
+def wait_for_code(chat_id, job_id, timeout=300):
     print("Aguardando codigo pelo Telegram...")
     start = time.time()
     while time.time() - start < timeout:
+        if is_job_cancelled(job_id):
+            print("Job cancelado durante espera de codigo.")
+            return None
         row = get_codigo(chat_id)
         if row:
-            mark_codigo_usado(row["id"])
-            return row["codigo"]
+            mark_codigo_usado(row['id'])
+            return row['codigo']
         time.sleep(3)
     return None
 
 def preencher_nome_idade(page, nome, nascimento):
-    print(f"  Preenchendo nome: {nome} | nascimento: {nascimento}")
-
     for sel in ["input[name='name']", "input[placeholder*='nome' i]", "input[placeholder*='name' i]", "input[type='text']"]:
-        if safe_fill(page, sel, nome):
-            print(f"  Nome preenchido via {sel}")
-            break
+        if safe_fill(page, sel, nome): break
     human_delay(0.5, 1)
 
-    preencheu_idade = False
-
+    preencheu = False
     try:
         el = page.locator("input[type='date']").first
         el.wait_for(timeout=2000)
         partes = nascimento.split("/")
         data_iso = f"{partes[2]}-{partes[1]}-{partes[0]}" if len(partes) == 3 else nascimento
         el.fill(data_iso)
-        preencheu_idade = True
-        print(f"  Idade preenchida como date: {data_iso}")
-    except:
-        pass
+        preencheu = True
+    except: pass
 
-    if not preencheu_idade:
+    if not preencheu:
         idade = calcular_idade(nascimento)
-        for sel in [
-            "input[type='number']",
-            "input[placeholder*='idade' i]",
-            "input[placeholder*='age' i]",
-            "input[name*='age' i]",
-        ]:
+        for sel in ["input[type='number']", "input[placeholder*='idade' i]", "input[placeholder*='age' i]", "input[name*='age' i]"]:
             if safe_fill(page, sel, idade):
-                preencheu_idade = True
-                print(f"  Idade preenchida via {sel}: {idade}")
+                preencheu = True
                 break
-
-    if not preencheu_idade:
+    if not preencheu:
         idade = calcular_idade(nascimento)
         try:
             inputs = page.locator("input[type='text'], input[type='number']").all()
             if len(inputs) >= 2:
                 inputs[1].fill(idade)
-                preencheu_idade = True
-                print(f"  Idade preenchida no segundo input: {idade}")
-        except:
-            pass
+        except: pass
 
     human_delay(0.5, 1)
-    click_concluir(page)  # usa funcao especifica que so clica em button
+    click_concluir(page)
     human_delay(2, 4)
 
 def run_job(job):
     from cloakbrowser import launch
 
-    chat_id = job["chat_id"]
-    job_id = job["id"]
-    pool = get_pool()
+    chat_id = job['chat_id']
+    user_id = job['user_id']
+    job_id = job['id']
+    preco = get_preco()
+    pool = get_pool(user_id)
 
     if not pool:
         send_message(chat_id, "Pool vazia!")
@@ -248,24 +239,29 @@ def run_job(job):
 
     try:
         for conta in pool:
-            email = conta["email"]
-            senha = conta["senha"]
-            nome = conta.get("nome", "")
-            nascimento = conta.get("nascimento", "")
+            if is_job_cancelled(job_id):
+                send_message(chat_id, "Job cancelado pelo admin.")
+                break
+
+            email = conta['email']
+            senha = conta['senha']
+            nome = conta.get('nome', '')
+            nascimento = conta.get('nascimento', '')
 
             print(f"\n=== Criando: {email} ===")
             send_message(chat_id, f"Iniciando: `{email}`")
 
             page = browser.new_page()
+            sucesso = False
             try:
                 page.goto("https://chatgpt.com")
                 page.wait_for_load_state("networkidle")
                 human_delay(2, 4)
 
                 if not click_cadastro(page):
-                    send_message(chat_id, f"Nao achei o botao de cadastro em `{email}`. Pulando.")
-                    log_resultado(email, "ERRO_CADASTRO")
-                    update_pool_status(email, "erro")
+                    send_message(chat_id, f"Nao achei botao de cadastro. Pulando `{email}`.")
+                    log_resultado(user_id, email, "ERRO_CADASTRO")
+                    update_pool_status(user_id, email, "erro")
                     page.close()
                     continue
                 human_delay(2, 4)
@@ -283,70 +279,67 @@ def run_job(job):
                 page.keyboard.press("Enter")
                 human_delay(2, 4)
 
+                # Desconta saldo antes de pedir codigo
+                ajustar_saldo(chat_id, -preco)
+
                 set_waiting_code(chat_id, True)
                 send_message(chat_id, f"Conta `{email}` precisa do codigo de verificacao.\n\nManda so o codigo de 6 digitos.")
 
-                code = wait_for_code(chat_id, timeout=300)
+                code = wait_for_code(chat_id, job_id, timeout=300)
                 set_waiting_code(chat_id, False)
 
                 if not code:
-                    send_message(chat_id, f"Timeout esperando codigo. Pulando `{email}`.")
-                    log_resultado(email, "TIMEOUT_CODIGO")
-                    update_pool_status(email, "timeout")
+                    send_message(chat_id, f"Timeout/cancelado. Reembolsando `{email}`.")
+                    ajustar_saldo(chat_id, preco)  # reembolso
+                    log_resultado(user_id, email, "TIMEOUT")
+                    update_pool_status(user_id, email, "timeout")
                     page.close()
                     continue
 
                 preencheu = False
-                for sel in [
-                    "input[placeholder*='digito' i]",
-                    "input[placeholder*='codigo' i]",
-                    "input[placeholder*='code' i]",
-                    "input[name*='code' i]",
-                    "input[inputmode='numeric']",
-                    "input[type='text']",
-                ]:
+                for sel in ["input[placeholder*='digito' i]", "input[placeholder*='codigo' i]", "input[placeholder*='code' i]", "input[name*='code' i]", "input[inputmode='numeric']", "input[type='text']"]:
                     try:
                         page.wait_for_selector(sel, timeout=3000)
                         page.fill(sel, code)
                         preencheu = True
                         break
-                    except:
-                        continue
+                    except: continue
                 if not preencheu:
                     page.keyboard.type(code)
 
                 page.keyboard.press("Enter")
-                send_message(chat_id, "Codigo colado! Aguardando proxima tela...")
+                send_message(chat_id, "Codigo colado! Aguardando...")
                 human_delay(3, 5)
 
-                # Tela de nome e idade
                 try:
                     page.wait_for_selector("text=Quantos anos", timeout=8000)
-                    print("  Tela de nome/idade detectada!")
                     preencher_nome_idade(page, nome, nascimento)
                 except:
                     try:
                         page.wait_for_selector("input[placeholder*='nome' i], input[placeholder*='name' i]", timeout=5000)
                         preencher_nome_idade(page, nome, nascimento)
-                    except:
-                        print("  Tela de nome/idade nao detectada, continuando...")
+                    except: pass
 
                 human_delay(2, 4)
 
                 try:
                     page.wait_for_selector("text=ChatGPT", timeout=10000)
                     send_message(chat_id, f"Conta `{email}` criada com sucesso!")
-                    log_resultado(email, "SUCESSO")
-                    update_pool_status(email, "done")
+                    log_resultado(user_id, email, "SUCESSO")
+                    update_pool_status(user_id, email, "done")
+                    sucesso = True
                 except:
                     send_message(chat_id, f"`{email}` pode precisar de verificacao manual.")
-                    log_resultado(email, "VERIFICAR")
-                    update_pool_status(email, "verificar")
+                    log_resultado(user_id, email, "VERIFICAR")
+                    update_pool_status(user_id, email, "verificar")
+                    # Reembolsa se nao confirmou
+                    ajustar_saldo(chat_id, preco)
 
             except Exception as e:
-                send_message(chat_id, f"Erro em `{email}`: {str(e)[:100]}")
-                log_resultado(email, "ERRO")
-                update_pool_status(email, "erro")
+                send_message(chat_id, f"Erro em `{email}`: {str(e)[:80]}")
+                log_resultado(user_id, email, "ERRO")
+                update_pool_status(user_id, email, "erro")
+                ajustar_saldo(chat_id, preco)  # reembolso em caso de erro
             finally:
                 try: page.close()
                 except: pass
@@ -355,20 +348,19 @@ def run_job(job):
         try: browser.close()
         except: pass
         finish_job(job_id)
-        send_message(chat_id, "Job finalizado! Use /resultados pra ver.")
+        send_message(chat_id, "Job finalizado! Use /start pra ver seus resultados.")
         print("Job finalizado!")
 
 def main():
-    print("Worker iniciado - aguardando jobs do Telegram...")
-    print("(deixa essa janela aberta)\n")
+    print("Worker iniciado - aguardando jobs...\n")
     while True:
         try:
             job = get_active_job()
-            if job and job["status"] == "running":
-                print(f"Job encontrado! ID: {job['id']}")
+            if job:
+                print(f"Job encontrado! ID: {job['id']} | user: {job['user_id']}")
                 run_job(job)
             else:
-                print("Sem jobs. Checando de novo em 5s...", end="\r")
+                print("Sem jobs. Checando em 5s...", end="\r")
         except Exception as e:
             print(f"Erro no loop: {e}")
         time.sleep(5)
