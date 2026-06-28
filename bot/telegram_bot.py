@@ -12,7 +12,7 @@ TOKEN = os.environ.get("TELEGRAM_TOKEN")
 def menu_principal():
     keyboard = [
         [InlineKeyboardButton("📋 Ver Pool", callback_data="pool"),
-         InlineKeyboardButton("➕ Adicionar Email", callback_data="add")],
+         InlineKeyboardButton("➕ Adicionar Conta", callback_data="add")],
         [InlineKeyboardButton("🗑️ Limpar Pool", callback_data="clear"),
          InlineKeyboardButton("📊 Status", callback_data="status")],
         [InlineKeyboardButton("🚀 Iniciar Job", callback_data="start_job")],
@@ -40,11 +40,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "pool":
         pool = get_pool()
         if not pool:
-            texto = "📋 *Pool vazia.*\n\nUsa ➕ Adicionar Email pra colocar contas."
+            texto = "📋 *Pool vazia.*\n\nUsa ➕ Adicionar Conta pra colocar contas."
         else:
             texto = f"📋 *Pool ({len(pool)} pendentes):*\n\n"
             for i, c in enumerate(pool, 1):
-                texto += f"{i}. `{c['email']}` | {c.get('nome','?')} | {c.get('nascimento','?')}\n"
+                texto += f"{i}. `{c['email']}` | {c.get('nome','?')}\n"
         await query.edit_message_text(texto, parse_mode="Markdown", reply_markup=menu_principal())
 
     elif data == "add":
@@ -52,9 +52,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(
             "➕ *Adicionar conta*\n\n"
             "Manda no formato:\n"
-            "`email senha Nome Completo DD/MM/AAAA`\n\n"
-            "Exemplo:\n"
-            "`teste@gmail.com Senha123 Jo\u00e3o Silva 15/03/1995`",
+            "`email:senha:Nome Completo`\n\n"
+            "Exemplos:\n"
+            "`teste@gmail.com:Senha123:João Silva`\n"
+            "`outro@gmail.com:Pass456:Tony`\n\n"
+            "_A data de nascimento é gerada automaticamente._",
             parse_mode="Markdown"
         )
 
@@ -70,7 +72,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📊 *Status:*\n\n"
             f"• Contas pendentes: `{len(pool)}`\n"
             f"• Job ativo: {'✅' if active else '❌'}\n"
-            f"• Aguardando c\u00f3digo: {'✅' if waiting else '❌'}"
+            f"• Aguardando código: {'✅' if waiting else '❌'}"
         )
         await query.edit_message_text(texto, parse_mode="Markdown", reply_markup=menu_principal())
 
@@ -80,7 +82,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("⚠️ Pool vazia!", reply_markup=menu_principal())
             return
         if get_active_job():
-            await query.edit_message_text("⚠️ J\u00e1 tem um job rodando!", reply_markup=menu_principal())
+            await query.edit_message_text("⚠️ Já tem um job rodando!", reply_markup=menu_principal())
             return
         create_job(chat_id)
         await query.edit_message_text(
@@ -93,10 +95,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not rows:
             texto = "📈 Nenhum resultado ainda."
         else:
-            texto = "📈 *\u00daltimos Resultados:*\n\n"
+            texto = "📈 *Últimos Resultados:*\n\n"
             for r in rows:
                 emoji = "✅" if r["status"] == "SUCESSO" else ("⚠️" if r["status"] == "VERIFICAR" else "❌")
-                texto += f"{emoji} `{r['email']}` \u2192 {r['status']}\n"
+                texto += f"{emoji} `{r['email']}` → {r['status']}\n"
         await query.edit_message_text(texto, parse_mode="Markdown", reply_markup=menu_principal())
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -104,35 +106,50 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
 
     if context.user_data.get("aguardando") == "add":
-        parts = text.split()
-        # Formato: email senha Nome... DD/MM/AAAA
-        # A data sempre é o último token
-        if len(parts) < 4:
-            await update.message.reply_text(
-                "❌ Formato inv\u00e1lido. Exemplo:\n`teste@gmail.com Senha123 Jo\u00e3o Silva 15/03/1995`",
-                parse_mode="Markdown"
-            )
-            return
+        # Suporta múltiplas contas de uma vez (uma por linha)
+        linhas = [l.strip() for l in text.splitlines() if l.strip()]
+        adicionadas = []
+        erros = []
 
-        email = parts[0]
-        senha = parts[1]
-        nascimento = parts[-1]  # último token = data
-        nome = " ".join(parts[2:-1])  # tudo entre senha e data = nome
+        for linha in linhas:
+            parts = linha.split(":")
+            if len(parts) < 3:
+                erros.append(f"`{linha}` — formato inválido")
+                continue
 
-        if not nome:
-            await update.message.reply_text(
-                "❌ Precisa do nome completo.\nExemplo:\n`teste@gmail.com Senha123 Jo\u00e3o Silva 15/03/1995`",
-                parse_mode="Markdown"
-            )
-            return
+            email = parts[0].strip()
+            senha = parts[1].strip()
+            nome = ":".join(parts[2:]).strip()  # suporta : no nome (improvável mas seguro)
 
-        add_to_pool(email, senha, nome, nascimento)
+            if not email or not senha or not nome:
+                erros.append(f"`{linha}` — campo vazio")
+                continue
+
+            # Nascimento automático: 22 anos, dia e mês aleatórios
+            import random, datetime
+            ano = datetime.date.today().year - 22
+            mes = random.randint(1, 12)
+            # dias válidos por mês (sem leap year por simplicidade)
+            max_dia = [31,28,31,30,31,30,31,31,30,31,30,31][mes-1]
+            dia = random.randint(1, max_dia)
+            nascimento = f"{dia:02d}/{mes:02d}/{ano}"
+
+            add_to_pool(email, senha, nome, nascimento)
+            adicionadas.append(f"`{email}` | {nome}")
+
         context.user_data["aguardando"] = None
+
+        resposta = ""
+        if adicionadas:
+            resposta += f"✅ *{len(adicionadas)} conta(s) adicionada(s):*\n" + "\n".join(adicionadas) + "\n"
+        if erros:
+            resposta += f"\n❌ *{len(erros)} erro(s):*\n" + "\n".join(erros)
+
         await update.message.reply_text(
-            f"✅ Adicionado:\n`{email}` | {nome} | {nascimento}",
+            resposta.strip(),
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("➕ Adicionar outro", callback_data="add"),
+                InlineKeyboardButton("➕ Adicionar mais", callback_data="add"),
                 InlineKeyboardButton("🏠 Menu", callback_data="pool")
             ]])
         )
@@ -140,10 +157,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if is_waiting_code(chat_id):
         save_codigo(chat_id, text)
-        await update.message.reply_text("✅ C\u00f3digo salvo! O worker vai pegar automaticamente.")
+        await update.message.reply_text("✅ Código salvo! O worker vai pegar automaticamente.")
         return
 
-    await update.message.reply_text("🤖 Usa os bot\u00f5es abaixo:", reply_markup=menu_principal())
+    await update.message.reply_text("🤖 Usa os botões abaixo:", reply_markup=menu_principal())
 
 def main():
     init_db()

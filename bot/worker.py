@@ -80,7 +80,7 @@ def human_delay(min_s=1.0, max_s=3.5):
 
 def calcular_idade(nascimento_str):
     """
-    Recebe DD/MM/AAAA ou só AAAA e retorna a idade como string (ex: '24').
+    Recebe DD/MM/AAAA ou só AAAA e retorna a idade como string (ex: '22').
     """
     hoje = datetime.date.today()
     partes = nascimento_str.strip().split("/")
@@ -95,7 +95,7 @@ def calcular_idade(nascimento_str):
         return str(idade)
     except Exception as e:
         print(f"  Erro ao calcular idade de '{nascimento_str}': {e}")
-        return ""
+        return "22"
 
 def click_cadastro(page):
     seletores = [
@@ -158,9 +158,9 @@ def wait_for_code(chat_id, timeout=300):
 def preencher_nome_idade(page, nome, nascimento):
     """
     Preenche a tela de nome e idade/nascimento.
-    - Se achar input[type='date'], preenche com DD/MM/AAAA convertido para YYYY-MM-DD.
-    - Se não achar campo de data, calcula a idade atual a partir do nascimento e digita o número.
-    nascimento pode ser DD/MM/AAAA ou só AAAA.
+    Lógica:
+      1. Tenta input[type='date'] -> preenche YYYY-MM-DD
+      2. Se não achar, calcula a idade (número inteiro) e digita nos campos de texto/número
     """
     print(f"  Preenchendo nome: {nome} | nascimento: {nascimento}")
 
@@ -173,7 +173,7 @@ def preencher_nome_idade(page, nome, nascimento):
 
     preencheu_idade = False
 
-    # 1) Tenta campo de data (input[type='date']) -> formato YYYY-MM-DD
+    # 1) Campo de data (input[type='date']) -> YYYY-MM-DD
     try:
         el = page.locator("input[type='date']").first
         el.wait_for(timeout=2000)
@@ -191,9 +191,10 @@ def preencher_nome_idade(page, nome, nascimento):
     # 2) Sem campo de data: calcula idade e digita o número
     if not preencheu_idade:
         idade = calcular_idade(nascimento)
-        print(f"  Campo de data não encontrado. Usando idade calculada: {idade}")
+        print(f"  Campo de data não encontrado. Usando idade: {idade}")
 
         for sel in [
+            "input[type='number']",
             "input[placeholder*='idade' i]",
             "input[placeholder*='age' i]",
             "input[placeholder*='nascimento' i]",
@@ -206,7 +207,7 @@ def preencher_nome_idade(page, nome, nascimento):
                 print(f"  Idade preenchida via {sel}: {idade}")
                 break
 
-    # 3) Fallback: segundo input de texto/número
+    # 3) Fallback: segundo input de texto/número na página
     if not preencheu_idade:
         idade = calcular_idade(nascimento)
         try:
