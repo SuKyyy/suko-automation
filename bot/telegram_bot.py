@@ -22,46 +22,85 @@ def menu_principal():
     ]
     return InlineKeyboardMarkup(keyboard)
 
-def parece_conta(linha):
-    """Retorna True se a linha tem cara de email:senha:nome"""
-    partes = linha.split(":")
-    if len(partes) < 3:
-        return False
-    email = partes[0].strip()
-    return "@" in email and "." in email
+def gerar_nascimento():
+    ano = datetime.date.today().year - 22
+    mes = random.randint(1, 12)
+    max_dia = [31,28,31,30,31,30,31,31,30,31,30,31][mes-1]
+    dia = random.randint(1, max_dia)
+    return f"{dia:02d}/{mes:02d}/{ano}"
 
-def processar_contas(linhas):
-    """Processa lista de linhas no formato email:senha:nome. Retorna (adicionadas, erros)."""
+def parse_linha(linha):
+    """
+    Tenta extrair (email, senha, nome) de uma linha.
+    Aceita:
+      - email:senha:nome
+      - email senha nome  (separado por espaço, se email vier primeiro)
+    Retorna (email, senha, nome) ou None se não conseguir.
+    """
+    linha = linha.strip()
+    if not linha or "@" not in linha:
+        return None
+
+    # Tenta separar por : primeiro
+    # Divide só nas 2 primeiras ocorrências de :
+    partes = linha.split(":", 2)
+    if len(partes) == 3:
+        email, senha, nome = partes[0].strip(), partes[1].strip(), partes[2].strip()
+        if "@" in email and senha and nome:
+            return email, senha, nome
+
+    # Tenta separar por espaço: email senha resto_é_nome
+    partes = linha.split(" ", 2)
+    if len(partes) >= 3:
+        email, senha, nome = partes[0].strip(), partes[1].strip(), partes[2].strip()
+        if "@" in email and senha and nome:
+            return email, senha, nome
+
+    # Tem email e senha mas sem nome — gera nome genérico
+    if len(partes) == 2:
+        email, senha = partes[0].strip(), partes[1].strip()
+        if "@" in email and senha:
+            return email, senha, "Usuario"
+
+    return None
+
+def processar_texto(text):
+    """
+    Junta todas as linhas do texto e tenta montar contas.
+    Lida com mensagens quebradas pelo Telegram.
+    Retorna (adicionadas, erros).
+    """
     adicionadas = []
     erros = []
-    for linha in linhas:
-        if not linha.strip():
-            continue
-        partes = linha.split(":")
-        if len(partes) < 3:
-            erros.append(f"`{linha}` — formato inválido (use email:senha:nome)")
-            continue
 
-        email = partes[0].strip()
-        senha = partes[1].strip()
-        nome = ":".join(partes[2:]).strip()
+    # Tenta processar linha por linha primeiro
+    linhas = [l.strip() for l in text.splitlines() if l.strip()]
+    processadas = set()
 
-        if not email or not senha or not nome:
-            erros.append(f"`{linha}` — campo vazio")
-            continue
+    for i, linha in enumerate(linhas):
+        resultado = parse_linha(linha)
+        if resultado:
+            email, senha, nome = resultado
+            nascimento = gerar_nascimento()
+            add_to_pool(email, senha, nome, nascimento)
+            adicionadas.append(f"{email} | {nome}")
+            processadas.add(i)
 
-        if "@" not in email:
-            erros.append(f"`{linha}` — email inválido")
-            continue
-
-        ano = datetime.date.today().year - 22
-        mes = random.randint(1, 12)
-        max_dia = [31,28,31,30,31,30,31,31,30,31,30,31][mes-1]
-        dia = random.randint(1, max_dia)
-        nascimento = f"{dia:02d}/{mes:02d}/{ano}"
-
-        add_to_pool(email, senha, nome, nascimento)
-        adicionadas.append(f"`{email}` | {nome}")
+    # Linhas não processadas que tenham @ podem ser fragmentos — tenta juntar com próxima
+    sobras = [linhas[i] for i in range(len(linhas)) if i not in processadas]
+    if sobras:
+        # Tenta juntar tudo numa linha só e reprocessar
+        junto = " ".join(sobras)
+        resultado = parse_linha(junto)
+        if resultado:
+            email, senha, nome = resultado
+            nascimento = gerar_nascimento()
+            add_to_pool(email, senha, nome, nascimento)
+            adicionadas.append(f"{email} | {nome}")
+        elif sobras:
+            for s in sobras:
+                if "@" in s:
+                    erros.append(f"Não consegui processar: {s[:50]}")
 
     return adicionadas, erros
 
@@ -85,24 +124,23 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "pool":
         pool = get_pool()
         if not pool:
-            texto = "📋 *Pool vazia.*\n\nManda direto no chat: `email:senha:Nome`"
+            texto = "📋 Pool vazia.\n\nManda direto: email:senha:Nome"
         else:
-            texto = f"📋 *Pool ({len(pool)} pendentes):*\n\n"
+            texto = f"📋 Pool ({len(pool)} pendentes):\n\n"
             for i, c in enumerate(pool, 1):
-                texto += f"{i}. `{c['email']}` | {c.get('nome','?')}\n"
-        await query.edit_message_text(texto, parse_mode="Markdown", reply_markup=menu_principal())
+                texto += f"{i}. {c['email']} | {c.get('nome','?')}\n"
+        await query.edit_message_text(texto, reply_markup=menu_principal())
 
     elif data == "add":
         await query.edit_message_text(
-            "➕ *Adicionar conta*\n\n"
+            "➕ Adicionar conta\n\n"
             "Manda no formato:\n"
-            "`email:senha:Nome Completo`\n\n"
+            "email:senha:Nome Completo\n\n"
             "Exemplos:\n"
-            "`teste@gmail.com:Senha123:João Silva`\n"
-            "`outro@gmail.com:Pass456:Tony`\n\n"
+            "teste@gmail.com:Senha123:Joao Silva\n"
+            "outro@gmail.com:Pass456!?:Tony\n\n"
             "Pode mandar várias de uma vez, uma por linha.\n"
-            "_A data de nascimento é gerada automaticamente._",
-            parse_mode="Markdown",
+            "A data de nascimento é gerada automaticamente.",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 Menu", callback_data="pool")]])
         )
 
@@ -115,12 +153,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         active = get_active_job()
         waiting = is_waiting_code(chat_id)
         texto = (
-            f"📊 *Status:*\n\n"
-            f"• Contas pendentes: `{len(pool)}`\n"
-            f"• Job ativo: {'✅' if active else '❌'}\n"
-            f"• Aguardando código: {'✅' if waiting else '❌'}"
+            f"📊 Status:\n\n"
+            f"Contas pendentes: {len(pool)}\n"
+            f"Job ativo: {'sim' if active else 'nao'}\n"
+            f"Aguardando codigo: {'sim' if waiting else 'nao'}"
         )
-        await query.edit_message_text(texto, parse_mode="Markdown", reply_markup=menu_principal())
+        await query.edit_message_text(texto, reply_markup=menu_principal())
 
     elif data == "start_job":
         pool = get_pool()
@@ -128,12 +166,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("⚠️ Pool vazia!", reply_markup=menu_principal())
             return
         if get_active_job():
-            await query.edit_message_text("⚠️ Já tem um job rodando!", reply_markup=menu_principal())
+            await query.edit_message_text("⚠️ Ja tem um job rodando!", reply_markup=menu_principal())
             return
         create_job(chat_id)
         await query.edit_message_text(
-            f"🚀 *Job criado!* {len(pool)} conta(s) na fila.\n\nRode no PC: `python worker.py`",
-            parse_mode="Markdown", reply_markup=menu_principal()
+            f"🚀 Job criado! {len(pool)} conta(s) na fila.\n\nRode no PC: python worker.py",
+            reply_markup=menu_principal()
         )
 
     elif data == "resultados":
@@ -141,47 +179,46 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not rows:
             texto = "📈 Nenhum resultado ainda."
         else:
-            texto = "📈 *Últimos Resultados:*\n\n"
+            texto = "📈 Ultimos Resultados:\n\n"
             for r in rows:
                 emoji = "✅" if r["status"] == "SUCESSO" else ("⚠️" if r["status"] == "VERIFICAR" else "❌")
-                texto += f"{emoji} `{r['email']}` → {r['status']}\n"
-        await query.edit_message_text(texto, parse_mode="Markdown", reply_markup=menu_principal())
+                texto += f"{emoji} {r['email']} -> {r['status']}\n"
+        await query.edit_message_text(texto, reply_markup=menu_principal())
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     text = update.message.text.strip()
 
-    # Código de verificação tem prioridade
-    if is_waiting_code(chat_id):
-        # Só salva como código se não parecer uma conta
-        if not parece_conta(text.splitlines()[0]):
-            save_codigo(chat_id, text.strip())
-            await update.message.reply_text("✅ Código salvo! O worker vai pegar automaticamente.")
-            return
+    print(f"[MSG] chat_id={chat_id} | texto={repr(text)}")
 
-    # Detecta automaticamente se é conta(s) no formato email:senha:nome
-    linhas = [l.strip() for l in text.splitlines() if l.strip()]
-    if any(parece_conta(l) for l in linhas):
-        adicionadas, erros = processar_contas(linhas)
-
-        resposta = ""
-        if adicionadas:
-            resposta += f"✅ *{len(adicionadas)} conta(s) adicionada(s):*\n" + "\n".join(adicionadas) + "\n"
-        if erros:
-            resposta += f"\n❌ *{len(erros)} erro(s):*\n" + "\n".join(erros)
-
-        await update.message.reply_text(
-            resposta.strip(),
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("📋 Ver Pool", callback_data="pool"),
-                InlineKeyboardButton("🚀 Iniciar Job", callback_data="start_job")
-            ]])
-        )
+    # Código de verificação tem prioridade (só se não tiver @ na msg)
+    if is_waiting_code(chat_id) and "@" not in text:
+        save_codigo(chat_id, text.strip())
+        await update.message.reply_text("✅ Codigo salvo! O worker vai pegar automaticamente.")
         return
 
-    # Fallback: mostra menu
-    await update.message.reply_text("🤖 Usa os botões abaixo:", reply_markup=menu_principal())
+    # Se tiver @ na mensagem, tenta processar como conta
+    if "@" in text:
+        adicionadas, erros = processar_texto(text)
+
+        if adicionadas:
+            resposta = f"✅ {len(adicionadas)} conta(s) adicionada(s):\n" + "\n".join(adicionadas)
+            if erros:
+                resposta += "\n\n❌ Erros:\n" + "\n".join(erros)
+            await update.message.reply_text(
+                resposta,
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("📋 Ver Pool", callback_data="pool"),
+                    InlineKeyboardButton("🚀 Iniciar Job", callback_data="start_job")
+                ]])
+            )
+            return
+        elif erros:
+            await update.message.reply_text("❌ Nao consegui processar:\n" + "\n".join(erros))
+            return
+
+    # Fallback
+    await update.message.reply_text("Usa os botoes abaixo:", reply_markup=menu_principal())
 
 def main():
     init_db()
