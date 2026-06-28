@@ -100,23 +100,26 @@ def ajustar_saldo(chat_id, valor):
 def send_message(chat_id, text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     try:
-        requests.post(url, json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}, timeout=10)
-    except: pass
-
-def human_delay(min_s=1.0, max_s=3.5):
-    time.sleep(random.uniform(min_s, max_s))
-
-def calcular_idade(nascimento_str):
-    hoje = datetime.date.today()
-    partes = nascimento_str.strip().split("/")
-    try:
-        if len(partes) == 3:
-            dia, mes, ano = int(partes[0]), int(partes[1]), int(partes[2])
-            nasc = datetime.date(ano, mes, dia)
-            return str(hoje.year - nasc.year - ((hoje.month, hoje.day) < (nasc.month, nasc.day)))
-        return str(hoje.year - int(partes[0]))
+        r = requests.post(url, json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}, timeout=10)
+        if r.status_code == 200:
+            return r.json()['result']['message_id']
+        return None
     except:
-        return "22"
+        return None
+
+def edit_message(chat_id, message_id, text):
+    if not message_id:
+        return
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/editMessageText"
+    try:
+        requests.post(url, json={
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": text,
+            "parse_mode": "Markdown"
+        }, timeout=10)
+    except:
+        pass
 
 def create_progress_bar(percent):
     filled = int(percent / 10)
@@ -277,7 +280,10 @@ def run_job(job):
             nascimento = conta.get('nascimento', '')
 
             print(f"\n=== Criando: {email} ===")
-            send_message(chat_id, f"Iniciando: `{email}`")
+
+            # Mensagem de progresso da conta (será editada)
+            progress_text = f"📌 Criando conta: `{email}`\n\n⏳ Iniciando cadastro..."
+            msg_id = send_message(chat_id, progress_text)
 
             page = browser.new_page()
             try:
@@ -286,18 +292,21 @@ def run_job(job):
                 human_delay(2, 4)
 
                 if not click_cadastro(page):
-                    send_message(chat_id, f"Nao achei botao de cadastro. Pulando `{email}`.")
+                    edit_message(chat_id, msg_id, f"📌 Criando conta: `{email}`\n\n❌ Falha ao encontrar botão de cadastro.")
                     log_resultado(user_id, email, "ERRO_CADASTRO")
                     update_pool_status(user_id, email, "erro")
                     page.close()
                     continue
-                human_delay(2, 4)
+
+                edit_message(chat_id, msg_id, f"📌 Criando conta: `{email}`\n\n✅ Cadastro iniciado\n⏳ Colocando email...")
+                human_delay(1, 2)
 
                 for sel in ["input[type='email']", "input[name='email']", "input[placeholder*='email' i]"]:
                     if safe_fill(page, sel, email): break
                 page.keyboard.press("Enter")
                 human_delay(2, 3)
 
+                edit_message(chat_id, msg_id, f"📌 Criando conta: `{email}`\n\n✅ Email colocado\n⏳ Colocando senha...")
                 safe_click_text(page, "Continuar com uma senha", "Continue with a password")
                 human_delay(1.5, 3)
 
@@ -309,18 +318,22 @@ def run_job(job):
                 ajustar_saldo(chat_id, -preco)
 
                 set_waiting_code(chat_id, True)
-                send_message(chat_id, f"Conta `{email}` precisa do codigo de verificacao.\n\nManda so o codigo de 6 digitos.")
+                edit_message(chat_id, msg_id, f"📌 Criando conta: `{email}`\n\n✅ Senha colocada\n⏳ Aguardando código no Telegram...")
+
+                send_message(chat_id, f"Conta `{email}` precisa do código de verificação.\n\nManda só o código de 6 dígitos.")
 
                 code = wait_for_code(chat_id, job_id, timeout=300)
                 set_waiting_code(chat_id, False)
 
                 if not code:
-                    send_message(chat_id, f"Timeout/cancelado. Reembolsando `{email}`.")
+                    edit_message(chat_id, msg_id, f"📌 Criando conta: `{email}`\n\n❌ Timeout ou cancelado. Reembolsando...")
                     ajustar_saldo(chat_id, preco)
                     log_resultado(user_id, email, "TIMEOUT")
                     update_pool_status(user_id, email, "timeout")
                     page.close()
                     continue
+
+                edit_message(chat_id, msg_id, f"📌 Criando conta: `{email}`\n\n✅ Código recebido\n⏳ Preenchendo nome e idade...")
 
                 preencheu = False
                 for sel in ["input[placeholder*='digito' i]", "input[placeholder*='codigo' i]", "input[placeholder*='code' i]", "input[name*='code' i]", "input[inputmode='numeric']", "input[type='text']"]:
@@ -335,7 +348,6 @@ def run_job(job):
                     page.keyboard.type(code)
 
                 page.keyboard.press("Enter")
-                send_message(chat_id, "Codigo colado! Aguardando...")
                 human_delay(3, 5)
 
                 try:
@@ -352,17 +364,17 @@ def run_job(job):
 
                 try:
                     page.wait_for_selector("text=ChatGPT", timeout=10000)
-                    send_message(chat_id, f"Conta `{email}` criada com sucesso!")
+                    edit_message(chat_id, msg_id, f"📌 Criando conta: `{email}`\n\n✅ Conta criada com sucesso!")
                     log_resultado(user_id, email, "SUCESSO")
                     update_pool_status(user_id, email, "done")
                 except:
-                    send_message(chat_id, f"`{email}` pode precisar de verificacao manual.")
+                    edit_message(chat_id, msg_id, f"📌 Criando conta: `{email}`\n\n⚠️ Pode precisar de verificação manual.")
                     log_resultado(user_id, email, "VERIFICAR")
                     update_pool_status(user_id, email, "verificar")
                     ajustar_saldo(chat_id, preco)
 
             except Exception as e:
-                send_message(chat_id, f"Erro em `{email}`: {str(e)[:80]}")
+                edit_message(chat_id, msg_id, f"📌 Criando conta: `{email}`\n\n❌ Erro: {str(e)[:60]}")
                 log_resultado(user_id, email, "ERRO")
                 update_pool_status(user_id, email, "erro")
                 ajustar_saldo(chat_id, preco)
