@@ -79,9 +79,6 @@ def human_delay(min_s=1.0, max_s=3.5):
     time.sleep(random.uniform(min_s, max_s))
 
 def calcular_idade(nascimento_str):
-    """
-    Recebe DD/MM/AAAA ou só AAAA e retorna a idade como string (ex: '22').
-    """
     hoje = datetime.date.today()
     partes = nascimento_str.strip().split("/")
     try:
@@ -133,15 +130,44 @@ def safe_fill(page, selector, value, timeout=8000):
         except: return False
 
 def safe_click_text(page, *textos, timeout=8000):
+    """Clica em texto, priorizando buttons sobre links."""
     for texto in textos:
-        try:
-            page.get_by_text(texto, exact=False).first.click(timeout=timeout)
-            return True
-        except: pass
+        # Tenta button primeiro (evita clicar em links como 'Termos de uso')
         try:
             page.locator(f"button:has-text('{texto}')").first.click(timeout=timeout)
             return True
         except: pass
+    for texto in textos:
+        # Fallback: qualquer elemento com o texto
+        try:
+            page.get_by_text(texto, exact=True).first.click(timeout=timeout)
+            return True
+        except: pass
+    return False
+
+def click_concluir(page):
+    """Clica especificamente no botao de concluir, nunca em links."""
+    textos = ["Concluir a cria\u00e7\u00e3o da conta", "Concluir", "Continue", "Submit", "Finish"]
+    for texto in textos:
+        try:
+            btn = page.locator(f"button:has-text('{texto}')").first
+            btn.wait_for(timeout=3000)
+            btn.scroll_into_view_if_needed()
+            btn.click()
+            print(f"  Clicou em botao: {texto}")
+            return True
+        except: pass
+    # Fallback: pega o unico button visivel na pagina
+    try:
+        btns = page.locator("button[type='submit'], button[type='button']").all()
+        for btn in btns:
+            txt = btn.inner_text()
+            if any(p in txt.lower() for p in ["conclu", "continu", "submit", "finish"]):
+                btn.scroll_into_view_if_needed()
+                btn.click()
+                print(f"  Clicou em botao fallback: {txt}")
+                return True
+    except: pass
     return False
 
 def wait_for_code(chat_id, timeout=300):
@@ -156,15 +182,8 @@ def wait_for_code(chat_id, timeout=300):
     return None
 
 def preencher_nome_idade(page, nome, nascimento):
-    """
-    Preenche a tela de nome e idade/nascimento.
-    Lógica:
-      1. Tenta input[type='date'] -> preenche YYYY-MM-DD
-      2. Se não achar, calcula a idade (número inteiro) e digita nos campos de texto/número
-    """
     print(f"  Preenchendo nome: {nome} | nascimento: {nascimento}")
 
-    # Nome
     for sel in ["input[name='name']", "input[placeholder*='nome' i]", "input[placeholder*='name' i]", "input[type='text']"]:
         if safe_fill(page, sel, nome):
             print(f"  Nome preenchido via {sel}")
@@ -173,41 +192,30 @@ def preencher_nome_idade(page, nome, nascimento):
 
     preencheu_idade = False
 
-    # 1) Campo de data (input[type='date']) -> YYYY-MM-DD
     try:
         el = page.locator("input[type='date']").first
         el.wait_for(timeout=2000)
         partes = nascimento.split("/")
-        if len(partes) == 3:
-            data_iso = f"{partes[2]}-{partes[1]}-{partes[0]}"
-        else:
-            data_iso = nascimento
+        data_iso = f"{partes[2]}-{partes[1]}-{partes[0]}" if len(partes) == 3 else nascimento
         el.fill(data_iso)
         preencheu_idade = True
         print(f"  Idade preenchida como date: {data_iso}")
     except:
         pass
 
-    # 2) Sem campo de data: calcula idade e digita o número
     if not preencheu_idade:
         idade = calcular_idade(nascimento)
-        print(f"  Campo de data não encontrado. Usando idade: {idade}")
-
         for sel in [
             "input[type='number']",
             "input[placeholder*='idade' i]",
             "input[placeholder*='age' i]",
-            "input[placeholder*='nascimento' i]",
-            "input[placeholder*='birth' i]",
             "input[name*='age' i]",
-            "input[name*='birth' i]",
         ]:
             if safe_fill(page, sel, idade):
                 preencheu_idade = True
                 print(f"  Idade preenchida via {sel}: {idade}")
                 break
 
-    # 3) Fallback: segundo input de texto/número na página
     if not preencheu_idade:
         idade = calcular_idade(nascimento)
         try:
@@ -220,10 +228,7 @@ def preencher_nome_idade(page, nome, nascimento):
             pass
 
     human_delay(0.5, 1)
-
-    # Clicar em Concluir
-    safe_click_text(page, "Concluir a criação da conta", "Concluir", "Continue", "Submit")
-    print("  Clicou em Concluir")
+    click_concluir(page)  # usa funcao especifica que so clica em button
     human_delay(2, 4)
 
 def run_job(job):
@@ -241,129 +246,121 @@ def run_job(job):
     send_message(chat_id, f"Worker conectado! Iniciando {len(pool)} conta(s)...")
     browser = launch(headless=False, humanize=True)
 
-    for conta in pool:
-        email = conta["email"]
-        senha = conta["senha"]
-        nome = conta.get("nome", "")
-        nascimento = conta.get("nascimento", "")
+    try:
+        for conta in pool:
+            email = conta["email"]
+            senha = conta["senha"]
+            nome = conta.get("nome", "")
+            nascimento = conta.get("nascimento", "")
 
-        print(f"\n=== Criando: {email} ===")
-        send_message(chat_id, f"Iniciando: `{email}`")
+            print(f"\n=== Criando: {email} ===")
+            send_message(chat_id, f"Iniciando: `{email}`")
 
-        page = browser.new_page()
-        try:
-            page.goto("https://chatgpt.com")
-            page.wait_for_load_state("networkidle")
-            human_delay(2, 4)
+            page = browser.new_page()
+            try:
+                page.goto("https://chatgpt.com")
+                page.wait_for_load_state("networkidle")
+                human_delay(2, 4)
 
-            print("  Clicando em cadastrar...")
-            if not click_cadastro(page):
-                send_message(chat_id, f"Nao achei o botao de cadastro em `{email}`. Pulando.")
-                log_resultado(email, "ERRO_CADASTRO")
-                update_pool_status(email, "erro")
-                page.close()
-                continue
-            human_delay(2, 4)
+                if not click_cadastro(page):
+                    send_message(chat_id, f"Nao achei o botao de cadastro em `{email}`. Pulando.")
+                    log_resultado(email, "ERRO_CADASTRO")
+                    update_pool_status(email, "erro")
+                    page.close()
+                    continue
+                human_delay(2, 4)
 
-            print("  Preenchendo email...")
-            for sel in ["input[type='email']", "input[name='email']", "input[placeholder*='email' i]"]:
-                if safe_fill(page, sel, email):
-                    break
-            page.keyboard.press("Enter")
-            human_delay(2, 3)
+                for sel in ["input[type='email']", "input[name='email']", "input[placeholder*='email' i]"]:
+                    if safe_fill(page, sel, email): break
+                page.keyboard.press("Enter")
+                human_delay(2, 3)
 
-            print("  Clicando em continuar com senha...")
-            safe_click_text(page, "Continuar com uma senha", "Continue with a password")
-            human_delay(1.5, 3)
+                safe_click_text(page, "Continuar com uma senha", "Continue with a password")
+                human_delay(1.5, 3)
 
-            print("  Preenchendo senha...")
-            for sel in ["input[type='password']", "input[name='password']"]:
-                if safe_fill(page, sel, senha):
-                    break
-            page.keyboard.press("Enter")
-            human_delay(2, 4)
+                for sel in ["input[type='password']", "input[name='password']"]:
+                    if safe_fill(page, sel, senha): break
+                page.keyboard.press("Enter")
+                human_delay(2, 4)
 
-            # Pedir codigo pelo Telegram
-            set_waiting_code(chat_id, True)
-            send_message(chat_id, f"Conta `{email}` precisa do codigo de verificacao.\n\nManda so o codigo de 6 digitos.")
+                set_waiting_code(chat_id, True)
+                send_message(chat_id, f"Conta `{email}` precisa do codigo de verificacao.\n\nManda so o codigo de 6 digitos.")
 
-            code = wait_for_code(chat_id, timeout=300)
-            set_waiting_code(chat_id, False)
+                code = wait_for_code(chat_id, timeout=300)
+                set_waiting_code(chat_id, False)
 
-            if not code:
-                send_message(chat_id, f"Timeout esperando codigo. Pulando `{email}`.")
-                log_resultado(email, "TIMEOUT_CODIGO")
-                update_pool_status(email, "timeout")
-                page.close()
-                continue
-
-            print(f"  Preenchendo codigo: {code}")
-            preencheu = False
-            for sel in [
-                "input[placeholder*='digito' i]",
-                "input[placeholder*='codigo' i]",
-                "input[placeholder*='code' i]",
-                "input[name*='code' i]",
-                "input[inputmode='numeric']",
-                "input[type='text']",
-            ]:
-                try:
-                    page.wait_for_selector(sel, timeout=3000)
-                    page.fill(sel, code)
-                    preencheu = True
-                    break
-                except:
+                if not code:
+                    send_message(chat_id, f"Timeout esperando codigo. Pulando `{email}`.")
+                    log_resultado(email, "TIMEOUT_CODIGO")
+                    update_pool_status(email, "timeout")
+                    page.close()
                     continue
 
-            if not preencheu:
-                page.keyboard.type(code)
+                preencheu = False
+                for sel in [
+                    "input[placeholder*='digito' i]",
+                    "input[placeholder*='codigo' i]",
+                    "input[placeholder*='code' i]",
+                    "input[name*='code' i]",
+                    "input[inputmode='numeric']",
+                    "input[type='text']",
+                ]:
+                    try:
+                        page.wait_for_selector(sel, timeout=3000)
+                        page.fill(sel, code)
+                        preencheu = True
+                        break
+                    except:
+                        continue
+                if not preencheu:
+                    page.keyboard.type(code)
 
-            page.keyboard.press("Enter")
-            send_message(chat_id, "Codigo colado! Aguardando proxima tela...")
-            human_delay(3, 5)
+                page.keyboard.press("Enter")
+                send_message(chat_id, "Codigo colado! Aguardando proxima tela...")
+                human_delay(3, 5)
 
-            # Tela de nome e idade
-            try:
-                page.wait_for_selector("text=Quantos anos", timeout=8000)
-                print("  Tela de nome/idade detectada!")
-                preencher_nome_idade(page, nome, nascimento)
-            except:
+                # Tela de nome e idade
                 try:
-                    page.wait_for_selector("input[placeholder*='nome' i], input[placeholder*='name' i]", timeout=5000)
-                    print("  Tela de nome/idade detectada (fallback)!")
+                    page.wait_for_selector("text=Quantos anos", timeout=8000)
+                    print("  Tela de nome/idade detectada!")
                     preencher_nome_idade(page, nome, nascimento)
                 except:
-                    print("  Tela de nome/idade nao detectada, continuando...")
+                    try:
+                        page.wait_for_selector("input[placeholder*='nome' i], input[placeholder*='name' i]", timeout=5000)
+                        preencher_nome_idade(page, nome, nascimento)
+                    except:
+                        print("  Tela de nome/idade nao detectada, continuando...")
 
-            human_delay(2, 4)
+                human_delay(2, 4)
 
-            # Checa se entrou
-            try:
-                page.wait_for_selector("text=ChatGPT", timeout=10000)
-                send_message(chat_id, f"Conta `{email}` criada com sucesso!")
-                log_resultado(email, "SUCESSO")
-                update_pool_status(email, "done")
-            except:
-                send_message(chat_id, f"`{email}` pode precisar de verificacao manual.")
-                log_resultado(email, "VERIFICAR")
-                update_pool_status(email, "verificar")
+                try:
+                    page.wait_for_selector("text=ChatGPT", timeout=10000)
+                    send_message(chat_id, f"Conta `{email}` criada com sucesso!")
+                    log_resultado(email, "SUCESSO")
+                    update_pool_status(email, "done")
+                except:
+                    send_message(chat_id, f"`{email}` pode precisar de verificacao manual.")
+                    log_resultado(email, "VERIFICAR")
+                    update_pool_status(email, "verificar")
 
-        except Exception as e:
-            send_message(chat_id, f"Erro em `{email}`: {str(e)[:100]}")
-            log_resultado(email, "ERRO")
-            update_pool_status(email, "erro")
-        finally:
-            page.close()
-            human_delay(5, 8)
-
-    browser.close()
-    finish_job(job_id)
-    send_message(chat_id, "Job finalizado! Use /resultados pra ver.")
-    print("Job finalizado!")
+            except Exception as e:
+                send_message(chat_id, f"Erro em `{email}`: {str(e)[:100]}")
+                log_resultado(email, "ERRO")
+                update_pool_status(email, "erro")
+            finally:
+                try: page.close()
+                except: pass
+                human_delay(5, 8)
+    finally:
+        try: browser.close()
+        except: pass
+        finish_job(job_id)
+        send_message(chat_id, "Job finalizado! Use /resultados pra ver.")
+        print("Job finalizado!")
 
 def main():
     print("Worker iniciado - aguardando jobs do Telegram...")
-    print("(deixa essa janela aberta, roda automaticamente quando clicar em Iniciar Job)\n")
+    print("(deixa essa janela aberta)\n")
     while True:
         try:
             job = get_active_job()
