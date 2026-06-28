@@ -1,2 +1,5 @@
 python-telegram-bot[job-queue]>=21.0
 cloakbrowser
+psycopg2-binary
+requests
+python-dotenv
