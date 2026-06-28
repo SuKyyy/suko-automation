@@ -48,6 +48,9 @@ def is_job_cancelled(job_id):
             return row and row['status'] == 'cancelado'
 
 def log_resultado(user_id, email, status):
+    if user_id is None:
+        print("[ERRO] user_id is None no log_resultado - pulando")
+        return
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("INSERT INTO resultados (user_id, email, status) VALUES (%s, %s, %s)", (user_id, email, status))
@@ -154,23 +157,41 @@ def safe_click_text(page, *textos, timeout=8000):
     return False
 
 def click_concluir(page):
-    for texto in ["Concluir a cria\u00e7\u00e3o da conta", "Concluir", "Continue", "Submit", "Finish"]:
+    # Tenta o botão exato primeiro
+    try:
+        btn = page.locator("button:has-text('Concluir a criação da conta')").first
+        btn.wait_for(timeout=6000)
+        btn.scroll_into_view_if_needed()
+        btn.click()
+        return True
+    except:
+        pass
+
+    # Fallbacks
+    for texto in ["Concluir", "Continue", "Submit", "Finish"]:
         try:
             btn = page.locator(f"button:has-text('{texto}')").first
-            btn.wait_for(timeout=3000)
+            btn.wait_for(timeout=4000)
             btn.scroll_into_view_if_needed()
             btn.click()
             return True
-        except: pass
+        except:
+            pass
+
+    # Último recurso: qualquer button submit
     try:
         btns = page.locator("button[type='submit'], button[type='button']").all()
         for btn in btns:
-            txt = btn.inner_text()
-            if any(p in txt.lower() for p in ["conclu", "continu", "submit", "finish"]):
-                btn.scroll_into_view_if_needed()
-                btn.click()
-                return True
-    except: pass
+            try:
+                txt = btn.inner_text()
+                if any(p in txt.lower() for p in ["conclu", "continu", "submit", "finish"]):
+                    btn.scroll_into_view_if_needed()
+                    btn.click()
+                    return True
+            except:
+                continue
+    except:
+        pass
     return False
 
 def wait_for_code(chat_id, job_id, timeout=300):
@@ -200,7 +221,8 @@ def preencher_nome_idade(page, nome, nascimento):
         data_iso = f"{partes[2]}-{partes[1]}-{partes[0]}" if len(partes) == 3 else nascimento
         el.fill(data_iso)
         preencheu = True
-    except: pass
+    except:
+        pass
 
     if not preencheu:
         idade = calcular_idade(nascimento)
@@ -214,7 +236,8 @@ def preencher_nome_idade(page, nome, nascimento):
             inputs = page.locator("input[type='text'], input[type='number']").all()
             if len(inputs) >= 2:
                 inputs[1].fill(idade)
-        except: pass
+        except:
+            pass
 
     human_delay(0.5, 1)
     click_concluir(page)
@@ -234,14 +257,18 @@ def run_job(job):
         finish_job(job_id)
         return
 
-    send_message(chat_id, f"Worker conectado! Iniciando {len(pool)} conta(s)...")
+    total = len(pool)
+    send_message(chat_id, f"Worker conectado! Iniciando {total} conta(s)...")
     browser = launch(headless=False, humanize=True)
 
     try:
-        for conta in pool:
+        for i, conta in enumerate(pool, 1):
             if is_job_cancelled(job_id):
                 send_message(chat_id, "Job cancelado pelo admin.")
                 break
+
+            percent = int((i / total) * 100)
+            send_message(chat_id, f"📊 Progresso: {i}/{total} ({percent}%)")
 
             email = conta['email']
             senha = conta['senha']
@@ -252,7 +279,6 @@ def run_job(job):
             send_message(chat_id, f"Iniciando: `{email}`")
 
             page = browser.new_page()
-            sucesso = False
             try:
                 page.goto("https://chatgpt.com")
                 page.wait_for_load_state("networkidle")
@@ -279,7 +305,6 @@ def run_job(job):
                 page.keyboard.press("Enter")
                 human_delay(2, 4)
 
-                # Desconta saldo antes de pedir codigo
                 ajustar_saldo(chat_id, -preco)
 
                 set_waiting_code(chat_id, True)
@@ -290,7 +315,7 @@ def run_job(job):
 
                 if not code:
                     send_message(chat_id, f"Timeout/cancelado. Reembolsando `{email}`.")
-                    ajustar_saldo(chat_id, preco)  # reembolso
+                    ajustar_saldo(chat_id, preco)
                     log_resultado(user_id, email, "TIMEOUT")
                     update_pool_status(user_id, email, "timeout")
                     page.close()
@@ -303,7 +328,8 @@ def run_job(job):
                         page.fill(sel, code)
                         preencheu = True
                         break
-                    except: continue
+                    except:
+                        continue
                 if not preencheu:
                     page.keyboard.type(code)
 
@@ -318,7 +344,8 @@ def run_job(job):
                     try:
                         page.wait_for_selector("input[placeholder*='nome' i], input[placeholder*='name' i]", timeout=5000)
                         preencher_nome_idade(page, nome, nascimento)
-                    except: pass
+                    except:
+                        pass
 
                 human_delay(2, 4)
 
@@ -327,26 +354,28 @@ def run_job(job):
                     send_message(chat_id, f"Conta `{email}` criada com sucesso!")
                     log_resultado(user_id, email, "SUCESSO")
                     update_pool_status(user_id, email, "done")
-                    sucesso = True
                 except:
                     send_message(chat_id, f"`{email}` pode precisar de verificacao manual.")
                     log_resultado(user_id, email, "VERIFICAR")
                     update_pool_status(user_id, email, "verificar")
-                    # Reembolsa se nao confirmou
                     ajustar_saldo(chat_id, preco)
 
             except Exception as e:
                 send_message(chat_id, f"Erro em `{email}`: {str(e)[:80]}")
                 log_resultado(user_id, email, "ERRO")
                 update_pool_status(user_id, email, "erro")
-                ajustar_saldo(chat_id, preco)  # reembolso em caso de erro
+                ajustar_saldo(chat_id, preco)
             finally:
-                try: page.close()
-                except: pass
+                try:
+                    page.close()
+                except:
+                    pass
                 human_delay(5, 8)
     finally:
-        try: browser.close()
-        except: pass
+        try:
+            browser.close()
+        except:
+            pass
         finish_job(job_id)
         send_message(chat_id, "Job finalizado! Use /start pra ver seus resultados.")
         print("Job finalizado!")
