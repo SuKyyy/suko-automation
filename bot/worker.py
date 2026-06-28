@@ -78,7 +78,6 @@ def human_delay(min_s=1.0, max_s=3.5):
     time.sleep(random.uniform(min_s, max_s))
 
 def click_cadastro(page):
-    """Tenta de varias formas clicar no botao de cadastro."""
     seletores = [
         "a[href*='signup']",
         "a[href*='register']",
@@ -92,20 +91,15 @@ def click_cadastro(page):
             el = page.locator(sel).first
             el.wait_for(timeout=5000)
             el.click()
-            print(f"  [click] clicou via seletor: {sel}")
             return True
         except:
             continue
-
-    # fallback: procura qualquer link/botao com o texto
     for texto in ["Cadastre-se gratuitamente", "Sign up for free", "Sign up", "Cadastre"]:
         try:
             page.get_by_text(texto, exact=False).first.click(timeout=5000)
-            print(f"  [click] clicou via texto: {texto}")
             return True
         except:
             continue
-
     return False
 
 def safe_fill(page, selector, value, timeout=8000):
@@ -131,7 +125,7 @@ def safe_click_text(page, *textos, timeout=8000):
     return False
 
 def wait_for_code(chat_id, timeout=300):
-    print("\u23f3 Aguardando c\u00f3digo pelo Telegram...")
+    print("Aguardando codigo pelo Telegram...")
     start = time.time()
     while time.time() - start < timeout:
         row = get_codigo(chat_id)
@@ -141,6 +135,79 @@ def wait_for_code(chat_id, timeout=300):
         time.sleep(3)
     return None
 
+def preencher_nome_idade(page, nome, nascimento):
+    """
+    Preenche a tela 'Quantos anos voce tem?' com nome e nascimento.
+    nascimento pode ser DD/MM/AAAA ou so o ano (AAAA).
+    Tenta preencher campo de idade de varios jeitos.
+    """
+    print(f"  Preenchendo nome: {nome} | nascimento: {nascimento}")
+
+    # Nome
+    for sel in ["input[name='name']", "input[placeholder*='nome' i]", "input[placeholder*='name' i]", "input[type='text']"]:
+        if safe_fill(page, sel, nome):
+            print(f"  Nome preenchido via {sel}")
+            break
+    human_delay(0.5, 1)
+
+    # Idade - tenta campo de data e campo numerico
+    # Detecta se e campo de data ou campo de texto/numero
+    preencheu_idade = False
+
+    # Tenta como campo de data (input[type='date']) -> formato YYYY-MM-DD
+    try:
+        el = page.locator("input[type='date']").first
+        el.wait_for(timeout=2000)
+        # Converte DD/MM/AAAA -> AAAA-MM-DD
+        partes = nascimento.split("/")
+        if len(partes) == 3:
+            data_iso = f"{partes[2]}-{partes[1]}-{partes[0]}"
+        else:
+            data_iso = nascimento
+        el.fill(data_iso)
+        preencheu_idade = True
+        print(f"  Idade preenchida como date: {data_iso}")
+    except:
+        pass
+
+    # Tenta como campo de texto com placeholder 'idade' ou 'age'
+    if not preencheu_idade:
+        # Extrai so o ano se vier DD/MM/AAAA
+        partes = nascimento.split("/")
+        valor_idade = partes[2] if len(partes) == 3 else nascimento
+        for sel in [
+            "input[placeholder*='idade' i]",
+            "input[placeholder*='age' i]",
+            "input[placeholder*='nascimento' i]",
+            "input[placeholder*='birth' i]",
+            "input[name*='age' i]",
+            "input[name*='birth' i]",
+        ]:
+            if safe_fill(page, sel, valor_idade):
+                preencheu_idade = True
+                print(f"  Idade preenchida via {sel}: {valor_idade}")
+                break
+
+    # Tenta segundo input[type='text'] (nome ja foi o primeiro)
+    if not preencheu_idade:
+        partes = nascimento.split("/")
+        valor_idade = partes[2] if len(partes) == 3 else nascimento
+        try:
+            inputs = page.locator("input[type='text'], input[type='number']").all()
+            if len(inputs) >= 2:
+                inputs[1].fill(valor_idade)
+                preencheu_idade = True
+                print(f"  Idade preenchida no segundo input: {valor_idade}")
+        except:
+            pass
+
+    human_delay(0.5, 1)
+
+    # Clicar em Concluir
+    safe_click_text(page, "Concluir a cria\u00e7\u00e3o da conta", "Concluir", "Continue", "Submit")
+    print("  Clicou em Concluir")
+    human_delay(2, 4)
+
 def run_job(job):
     from cloakbrowser import launch
 
@@ -149,19 +216,21 @@ def run_job(job):
     pool = get_pool()
 
     if not pool:
-        send_message(chat_id, "\u274c Pool vazia!")
+        send_message(chat_id, "Pool vazia!")
         finish_job(job_id)
         return
 
-    send_message(chat_id, f"\U0001f5a5\ufe0f Worker conectado! Iniciando {len(pool)} conta(s)...")
+    send_message(chat_id, f"Worker conectado! Iniciando {len(pool)} conta(s)...")
     browser = launch(headless=False, humanize=True)
 
     for conta in pool:
         email = conta["email"]
         senha = conta["senha"]
+        nome = conta.get("nome", "")
+        nascimento = conta.get("nascimento", "")
 
         print(f"\n=== Criando: {email} ===")
-        send_message(chat_id, f"\U0001f680 Iniciando: `{email}`")
+        send_message(chat_id, f"Iniciando: `{email}`")
 
         page = browser.new_page()
         try:
@@ -169,17 +238,15 @@ def run_job(job):
             page.wait_for_load_state("networkidle")
             human_delay(2, 4)
 
-            # Clicar em cadastrar
             print("  Clicando em cadastrar...")
             if not click_cadastro(page):
-                send_message(chat_id, f"\u274c N\u00e3o achei o bot\u00e3o de cadastro em `{email}`. Pulando.")
+                send_message(chat_id, f"Nao achei o botao de cadastro em `{email}`. Pulando.")
                 log_resultado(email, "ERRO_CADASTRO")
                 update_pool_status(email, "erro")
                 page.close()
                 continue
             human_delay(2, 4)
 
-            # Preencher email
             print("  Preenchendo email...")
             for sel in ["input[type='email']", "input[name='email']", "input[placeholder*='email' i]"]:
                 if safe_fill(page, sel, email):
@@ -187,12 +254,10 @@ def run_job(job):
             page.keyboard.press("Enter")
             human_delay(2, 3)
 
-            # Clicar em "Continuar com uma senha"
             print("  Clicando em continuar com senha...")
             safe_click_text(page, "Continuar com uma senha", "Continue with a password")
             human_delay(1.5, 3)
 
-            # Preencher senha
             print("  Preenchendo senha...")
             for sel in ["input[type='password']", "input[name='password']"]:
                 if safe_fill(page, sel, senha):
@@ -200,29 +265,25 @@ def run_job(job):
             page.keyboard.press("Enter")
             human_delay(2, 4)
 
-            # Pedir c\u00f3digo pelo Telegram
+            # Pedir codigo pelo Telegram
             set_waiting_code(chat_id, True)
-            send_message(
-                chat_id,
-                f"\U0001f4e9 Conta `{email}` precisa do c\u00f3digo de verifica\u00e7\u00e3o.\n\nManda *s\u00f3 o c\u00f3digo de 6 d\u00edgitos*."
-            )
+            send_message(chat_id, f"Conta `{email}` precisa do codigo de verificacao.\n\nManda so o codigo de 6 digitos.")
 
             code = wait_for_code(chat_id, timeout=300)
             set_waiting_code(chat_id, False)
 
             if not code:
-                send_message(chat_id, f"\u23f0 Timeout esperando c\u00f3digo. Pulando `{email}`.")
+                send_message(chat_id, f"Timeout esperando codigo. Pulando `{email}`.")
                 log_resultado(email, "TIMEOUT_CODIGO")
                 update_pool_status(email, "timeout")
                 page.close()
                 continue
 
-            # Preencher o c\u00f3digo
-            print(f"  Preenchendo c\u00f3digo: {code}")
+            print(f"  Preenchendo codigo: {code}")
             preencheu = False
             for sel in [
-                "input[placeholder*='dígito' i]",
-                "input[placeholder*='código' i]",
+                "input[placeholder*='digito' i]",
+                "input[placeholder*='codigo' i]",
                 "input[placeholder*='code' i]",
                 "input[name*='code' i]",
                 "input[inputmode='numeric']",
@@ -240,22 +301,38 @@ def run_job(job):
                 page.keyboard.type(code)
 
             page.keyboard.press("Enter")
-            send_message(chat_id, "\u2705 C\u00f3digo colado! Verificando...")
+            send_message(chat_id, "Codigo colado! Aguardando proxima tela...")
             human_delay(3, 5)
+
+            # Tela de nome e idade
+            try:
+                page.wait_for_selector("text=Quantos anos", timeout=8000)
+                print("  Tela de nome/idade detectada!")
+                preencher_nome_idade(page, nome, nascimento)
+            except:
+                # Tenta de qualquer forma caso o texto seja diferente
+                try:
+                    page.wait_for_selector("input[placeholder*='nome' i], input[placeholder*='name' i]", timeout=5000)
+                    print("  Tela de nome/idade detectada (fallback)!")
+                    preencher_nome_idade(page, nome, nascimento)
+                except:
+                    print("  Tela de nome/idade nao detectada, continuando...")
+
+            human_delay(2, 4)
 
             # Checa se entrou
             try:
                 page.wait_for_selector("text=ChatGPT", timeout=10000)
-                send_message(chat_id, f"\u2705 Conta `{email}` criada com sucesso!")
+                send_message(chat_id, f"Conta `{email}` criada com sucesso!")
                 log_resultado(email, "SUCESSO")
                 update_pool_status(email, "done")
             except:
-                send_message(chat_id, f"\u26a0\ufe0f `{email}` pode precisar de verifica\u00e7\u00e3o manual.")
+                send_message(chat_id, f"`{email}` pode precisar de verificacao manual.")
                 log_resultado(email, "VERIFICAR")
                 update_pool_status(email, "verificar")
 
         except Exception as e:
-            send_message(chat_id, f"\u274c Erro em `{email}`: {str(e)[:100]}")
+            send_message(chat_id, f"Erro em `{email}`: {str(e)[:100]}")
             log_resultado(email, "ERRO")
             update_pool_status(email, "erro")
         finally:
@@ -264,22 +341,22 @@ def run_job(job):
 
     browser.close()
     finish_job(job_id)
-    send_message(chat_id, "\U0001f3c1 Job finalizado! Use /resultados pra ver.")
-    print("\u2705 Job finalizado!")
+    send_message(chat_id, "Job finalizado! Use /resultados pra ver.")
+    print("Job finalizado!")
 
 def main():
-    print("\U0001f5a5\ufe0f Worker iniciado \u2014 aguardando jobs do Telegram...")
-    print("   (deixa essa janela aberta, roda automaticamente quando clicar em Iniciar Job)\n")
+    print("Worker iniciado - aguardando jobs do Telegram...")
+    print("(deixa essa janela aberta, roda automaticamente quando clicar em Iniciar Job)\n")
     while True:
         try:
             job = get_active_job()
             if job and job["status"] == "running":
-                print(f"\U0001f4cb Job encontrado! ID: {job['id']}")
+                print(f"Job encontrado! ID: {job['id']}")
                 run_job(job)
             else:
-                print("\u23f3 Sem jobs. Checando de novo em 5s...", end="\r")
+                print("Sem jobs. Checando de novo em 5s...", end="\r")
         except Exception as e:
-            print(f"\u274c Erro no loop: {e}")
+            print(f"Erro no loop: {e}")
         time.sleep(5)
 
 if __name__ == "__main__":

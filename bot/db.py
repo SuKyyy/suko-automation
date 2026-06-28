@@ -8,7 +8,6 @@ def get_conn():
     return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
 
 def init_db():
-    """Cria as tabelas se não existirem."""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -16,17 +15,17 @@ def init_db():
                     id SERIAL PRIMARY KEY,
                     email TEXT UNIQUE NOT NULL,
                     senha TEXT NOT NULL,
+                    nome TEXT DEFAULT '',
+                    nascimento TEXT DEFAULT '',
                     status TEXT DEFAULT 'pending',
                     criado_em TIMESTAMP DEFAULT NOW()
                 );
-
                 CREATE TABLE IF NOT EXISTS jobs (
                     id SERIAL PRIMARY KEY,
                     chat_id BIGINT NOT NULL,
                     status TEXT DEFAULT 'waiting',
                     criado_em TIMESTAMP DEFAULT NOW()
                 );
-
                 CREATE TABLE IF NOT EXISTS codigos (
                     id SERIAL PRIMARY KEY,
                     chat_id BIGINT NOT NULL,
@@ -34,7 +33,6 @@ def init_db():
                     usado BOOLEAN DEFAULT FALSE,
                     criado_em TIMESTAMP DEFAULT NOW()
                 );
-
                 CREATE TABLE IF NOT EXISTS resultados (
                     id SERIAL PRIMARY KEY,
                     email TEXT NOT NULL,
@@ -44,13 +42,12 @@ def init_db():
             """)
         conn.commit()
 
-# ==================== POOL ====================
-def add_to_pool(email, senha):
+def add_to_pool(email, senha, nome='', nascimento=''):
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO pool (email, senha) VALUES (%s, %s) ON CONFLICT (email) DO NOTHING",
-                (email, senha)
+                "INSERT INTO pool (email, senha, nome, nascimento) VALUES (%s, %s, %s, %s) ON CONFLICT (email) DO UPDATE SET senha=%s, nome=%s, nascimento=%s",
+                (email, senha, nome, nascimento, senha, nome, nascimento)
             )
         conn.commit()
 
@@ -72,14 +69,10 @@ def clear_pool():
             cur.execute("DELETE FROM pool")
         conn.commit()
 
-# ==================== JOBS ====================
 def create_job(chat_id):
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO jobs (chat_id, status) VALUES (%s, 'running') RETURNING id",
-                (chat_id,)
-            )
+            cur.execute("INSERT INTO jobs (chat_id, status) VALUES (%s, 'running') RETURNING id", (chat_id,))
             job_id = cur.fetchone()["id"]
         conn.commit()
     return job_id
@@ -87,7 +80,7 @@ def create_job(chat_id):
 def get_active_job():
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT * FROM jobs WHERE status = 'running' ORDER BY criado_em DESC LIMIT 1")
+            cur.execute("SELECT * FROM jobs WHERE status IN ('running', 'waiting_code') ORDER BY criado_em DESC LIMIT 1")
             return cur.fetchone()
 
 def finish_job(job_id):
@@ -96,24 +89,16 @@ def finish_job(job_id):
             cur.execute("UPDATE jobs SET status = 'done' WHERE id = %s", (job_id,))
         conn.commit()
 
-# ==================== CODIGOS ====================
 def save_codigo(chat_id, codigo):
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO codigos (chat_id, codigo) VALUES (%s, %s)",
-                (chat_id, codigo)
-            )
+            cur.execute("INSERT INTO codigos (chat_id, codigo) VALUES (%s, %s)", (chat_id, codigo))
         conn.commit()
 
 def get_codigo(chat_id):
-    """Pega o código mais recente não usado."""
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "SELECT * FROM codigos WHERE chat_id = %s AND usado = FALSE ORDER BY criado_em DESC LIMIT 1",
-                (chat_id,)
-            )
+            cur.execute("SELECT * FROM codigos WHERE chat_id = %s AND usado = FALSE ORDER BY criado_em DESC LIMIT 1", (chat_id,))
             return cur.fetchone()
 
 def mark_codigo_usado(codigo_id):
@@ -122,14 +107,10 @@ def mark_codigo_usado(codigo_id):
             cur.execute("UPDATE codigos SET usado = TRUE WHERE id = %s", (codigo_id,))
         conn.commit()
 
-# ==================== RESULTADOS ====================
 def log_resultado(email, status):
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO resultados (email, status) VALUES (%s, %s)",
-                (email, status)
-            )
+            cur.execute("INSERT INTO resultados (email, status) VALUES (%s, %s)", (email, status))
         conn.commit()
 
 def get_resultados():
@@ -138,27 +119,9 @@ def get_resultados():
             cur.execute("SELECT * FROM resultados ORDER BY criado_em DESC LIMIT 20")
             return cur.fetchall()
 
-# ==================== ESTADO WORKER ====================
-def set_worker_state(chat_id, waiting_code: bool):
-    """Salva estado do worker no DB (esperando código ou não)."""
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO jobs (chat_id, status) VALUES (%s, %s)
-                ON CONFLICT DO NOTHING
-            """, (chat_id, 'waiting_code' if waiting_code else 'running'))
-            cur.execute(
-                "UPDATE jobs SET status = %s WHERE chat_id = %s AND status IN ('running', 'waiting_code')",
-                ('waiting_code' if waiting_code else 'running', chat_id)
-            )
-        conn.commit()
-
 def is_waiting_code(chat_id):
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "SELECT status FROM jobs WHERE chat_id = %s ORDER BY criado_em DESC LIMIT 1",
-                (chat_id,)
-            )
+            cur.execute("SELECT status FROM jobs WHERE chat_id = %s ORDER BY criado_em DESC LIMIT 1", (chat_id,))
             row = cur.fetchone()
             return row and row["status"] == "waiting_code"
