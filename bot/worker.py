@@ -1,6 +1,7 @@
 import os
 import time
 import random
+import datetime
 import requests
 from dotenv import load_dotenv
 
@@ -77,6 +78,25 @@ def send_message(chat_id, text):
 def human_delay(min_s=1.0, max_s=3.5):
     time.sleep(random.uniform(min_s, max_s))
 
+def calcular_idade(nascimento_str):
+    """
+    Recebe DD/MM/AAAA ou só AAAA e retorna a idade como string (ex: '24').
+    """
+    hoje = datetime.date.today()
+    partes = nascimento_str.strip().split("/")
+    try:
+        if len(partes) == 3:
+            dia, mes, ano = int(partes[0]), int(partes[1]), int(partes[2])
+            nascimento = datetime.date(ano, mes, dia)
+            idade = hoje.year - nascimento.year - ((hoje.month, hoje.day) < (nascimento.month, nascimento.day))
+        else:
+            ano = int(partes[0])
+            idade = hoje.year - ano
+        return str(idade)
+    except Exception as e:
+        print(f"  Erro ao calcular idade de '{nascimento_str}': {e}")
+        return ""
+
 def click_cadastro(page):
     seletores = [
         "a[href*='signup']",
@@ -137,9 +157,10 @@ def wait_for_code(chat_id, timeout=300):
 
 def preencher_nome_idade(page, nome, nascimento):
     """
-    Preenche a tela 'Quantos anos voce tem?' com nome e nascimento.
-    nascimento pode ser DD/MM/AAAA ou so o ano (AAAA).
-    Tenta preencher campo de idade de varios jeitos.
+    Preenche a tela de nome e idade/nascimento.
+    - Se achar input[type='date'], preenche com DD/MM/AAAA convertido para YYYY-MM-DD.
+    - Se não achar campo de data, calcula a idade atual a partir do nascimento e digita o número.
+    nascimento pode ser DD/MM/AAAA ou só AAAA.
     """
     print(f"  Preenchendo nome: {nome} | nascimento: {nascimento}")
 
@@ -150,15 +171,12 @@ def preencher_nome_idade(page, nome, nascimento):
             break
     human_delay(0.5, 1)
 
-    # Idade - tenta campo de data e campo numerico
-    # Detecta se e campo de data ou campo de texto/numero
     preencheu_idade = False
 
-    # Tenta como campo de data (input[type='date']) -> formato YYYY-MM-DD
+    # 1) Tenta campo de data (input[type='date']) -> formato YYYY-MM-DD
     try:
         el = page.locator("input[type='date']").first
         el.wait_for(timeout=2000)
-        # Converte DD/MM/AAAA -> AAAA-MM-DD
         partes = nascimento.split("/")
         if len(partes) == 3:
             data_iso = f"{partes[2]}-{partes[1]}-{partes[0]}"
@@ -170,11 +188,11 @@ def preencher_nome_idade(page, nome, nascimento):
     except:
         pass
 
-    # Tenta como campo de texto com placeholder 'idade' ou 'age'
+    # 2) Sem campo de data: calcula idade e digita o número
     if not preencheu_idade:
-        # Extrai so o ano se vier DD/MM/AAAA
-        partes = nascimento.split("/")
-        valor_idade = partes[2] if len(partes) == 3 else nascimento
+        idade = calcular_idade(nascimento)
+        print(f"  Campo de data não encontrado. Usando idade calculada: {idade}")
+
         for sel in [
             "input[placeholder*='idade' i]",
             "input[placeholder*='age' i]",
@@ -183,28 +201,27 @@ def preencher_nome_idade(page, nome, nascimento):
             "input[name*='age' i]",
             "input[name*='birth' i]",
         ]:
-            if safe_fill(page, sel, valor_idade):
+            if safe_fill(page, sel, idade):
                 preencheu_idade = True
-                print(f"  Idade preenchida via {sel}: {valor_idade}")
+                print(f"  Idade preenchida via {sel}: {idade}")
                 break
 
-    # Tenta segundo input[type='text'] (nome ja foi o primeiro)
+    # 3) Fallback: segundo input de texto/número
     if not preencheu_idade:
-        partes = nascimento.split("/")
-        valor_idade = partes[2] if len(partes) == 3 else nascimento
+        idade = calcular_idade(nascimento)
         try:
             inputs = page.locator("input[type='text'], input[type='number']").all()
             if len(inputs) >= 2:
-                inputs[1].fill(valor_idade)
+                inputs[1].fill(idade)
                 preencheu_idade = True
-                print(f"  Idade preenchida no segundo input: {valor_idade}")
+                print(f"  Idade preenchida no segundo input: {idade}")
         except:
             pass
 
     human_delay(0.5, 1)
 
     # Clicar em Concluir
-    safe_click_text(page, "Concluir a cria\u00e7\u00e3o da conta", "Concluir", "Continue", "Submit")
+    safe_click_text(page, "Concluir a criação da conta", "Concluir", "Continue", "Submit")
     print("  Clicou em Concluir")
     human_delay(2, 4)
 
@@ -310,7 +327,6 @@ def run_job(job):
                 print("  Tela de nome/idade detectada!")
                 preencher_nome_idade(page, nome, nascimento)
             except:
-                # Tenta de qualquer forma caso o texto seja diferente
                 try:
                     page.wait_for_selector("input[placeholder*='nome' i], input[placeholder*='name' i]", timeout=5000)
                     print("  Tela de nome/idade detectada (fallback)!")
