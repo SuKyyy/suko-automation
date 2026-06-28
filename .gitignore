@@ -19,3 +19,9 @@ resultados_chatgpt.txt
 *.session
 .DS_Store
 Thumbs.db
+
+# Secrets e variáveis de ambiente
+.env
+.env.*
+.env.local
+.env.*.local
