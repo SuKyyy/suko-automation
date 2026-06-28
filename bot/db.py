@@ -43,10 +43,16 @@ def init_db():
         conn.commit()
 
 def add_to_pool(email, senha, nome='', nascimento=''):
+    """Adiciona ou atualiza conta na pool, sempre resetando status pra pending."""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO pool (email, senha, nome, nascimento) VALUES (%s, %s, %s, %s) ON CONFLICT (email) DO UPDATE SET senha=%s, nome=%s, nascimento=%s",
+                """
+                INSERT INTO pool (email, senha, nome, nascimento, status)
+                VALUES (%s, %s, %s, %s, 'pending')
+                ON CONFLICT (email) DO UPDATE
+                SET senha=%s, nome=%s, nascimento=%s, status='pending'
+                """,
                 (email, senha, nome, nascimento, senha, nome, nascimento)
             )
         conn.commit()
