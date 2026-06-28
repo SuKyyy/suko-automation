@@ -118,6 +118,11 @@ def calcular_idade(nascimento_str):
     except:
         return "22"
 
+def create_progress_bar(percent):
+    filled = int(percent / 10)
+    bar = "█" * filled + "░" * (10 - filled)
+    return f"[{bar}] {percent}%"
+
 def click_cadastro(page):
     for sel in ["a[href*='signup']", "a[href*='register']", "button:has-text('Cadastre')", "a:has-text('Cadastre')", "button:has-text('Sign up')", "a:has-text('Sign up')"]:
         try:
@@ -157,7 +162,6 @@ def safe_click_text(page, *textos, timeout=8000):
     return False
 
 def click_concluir(page):
-    # Tenta o botão exato primeiro
     try:
         btn = page.locator("button:has-text('Concluir a criação da conta')").first
         btn.wait_for(timeout=6000)
@@ -166,8 +170,6 @@ def click_concluir(page):
         return True
     except:
         pass
-
-    # Fallbacks
     for texto in ["Concluir", "Continue", "Submit", "Finish"]:
         try:
             btn = page.locator(f"button:has-text('{texto}')").first
@@ -177,8 +179,6 @@ def click_concluir(page):
             return True
         except:
             pass
-
-    # Último recurso: qualquer button submit
     try:
         btns = page.locator("button[type='submit'], button[type='button']").all()
         for btn in btns:
@@ -258,7 +258,7 @@ def run_job(job):
         return
 
     total = len(pool)
-    send_message(chat_id, f"Worker conectado! Iniciando {total} conta(s)...")
+    send_message(chat_id, f"🚀 Job iniciado! Processando {total} conta(s)...")
     browser = launch(headless=False, humanize=True)
 
     try:
@@ -268,7 +268,8 @@ def run_job(job):
                 break
 
             percent = int((i / total) * 100)
-            send_message(chat_id, f"📊 Progresso: {i}/{total} ({percent}%)")
+            bar = create_progress_bar(percent)
+            send_message(chat_id, f"📊 Progresso do Job\n{bar} ({i}/{total} contas)")
 
             email = conta['email']
             senha = conta['senha']
@@ -377,7 +378,7 @@ def run_job(job):
         except:
             pass
         finish_job(job_id)
-        send_message(chat_id, "Job finalizado! Use /start pra ver seus resultados.")
+        send_message(chat_id, "✅ Job finalizado! Use /start pra ver os resultados.")
         print("Job finalizado!")
 
 def main():
