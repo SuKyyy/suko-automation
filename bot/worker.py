@@ -244,19 +244,19 @@ def wait_for_code(chat_id, job_id, timeout=120):
     return None
 
 def preencher_nome_idade(page, nome, nascimento):
+    # Nome
     for sel in ["input[name='name']", "input[placeholder*='nome' i]", "input[placeholder*='name' i]", "input[type='text']"]:
         if safe_fill(page, sel, nome): break
-    human_delay(0.5, 1)
+    human_delay(0.6, 1.2)
 
+    # Data de nascimento ou Idade
     preencheu = False
+
+    # Tenta data de nascimento primeiro (formato DD/MM/YYYY)
     try:
-        el = page.locator("input[type='date'], input[placeholder*='nascimento' i], input[placeholder*='data' i], input[placeholder*='birth' i]").first
-        el.wait_for(timeout=2000)
-        partes = nascimento.split("/")
-        if len(partes) == 3:
-            el.fill(nascimento)
-        else:
-            el.fill(nascimento)
+        el = page.locator("input[placeholder*='nascimento' i], input[placeholder*='data de nascimento' i], input[placeholder*='birth' i], input[type='date']").first
+        el.wait_for(timeout=2500)
+        el.fill(nascimento)
         preencheu = True
     except:
         pass
@@ -264,7 +264,7 @@ def preencher_nome_idade(page, nome, nascimento):
     if not preencheu:
         try:
             el = page.locator("input[type='date']").first
-            el.wait_for(timeout=1500)
+            el.wait_for(timeout=2000)
             partes = nascimento.split("/")
             if len(partes) == 3:
                 data_iso = f"{partes[2]}-{partes[1]}-{partes[0]}"
@@ -288,9 +288,9 @@ def preencher_nome_idade(page, nome, nascimento):
         except:
             pass
 
-    human_delay(0.5, 1)
+    human_delay(0.6, 1.2)
     click_concluir(page)
-    human_delay(2, 4)
+    human_delay(2.5, 4)
 
 def run_job(job):
     from cloakbrowser import launch
@@ -363,30 +363,31 @@ Progresso: [          ] 0%"""
 
                 human_delay(3, 5)
 
-                # === DETECÇÃO MELHORADA ===
+                # === FLUXO CLARO ===
+                # Se ja preencheu nome, pula codigo e vai direto pra idade/data
                 pulou_codigo = False
                 try:
-                    page.wait_for_selector("text=Quantos anos", timeout=4000)
+                    page.wait_for_selector("text=Quantos anos", timeout=4500)
                     pulou_codigo = True
                 except:
                     try:
-                        page.wait_for_selector("text=Vamos confirmar a sua idade", timeout=4000)
+                        page.wait_for_selector("text=Vamos confirmar a sua idade", timeout=4500)
                         pulou_codigo = True
                     except:
                         pass
 
                 if pulou_codigo:
-                    edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Pulou etapa de c\u00f3digo \u2705\nProgresso: [\u2588\u2588\u2588\u2588\u2588\u2588    ] 60%\n\nPreenchendo nome e data de nascimento...")
+                    edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Pulou c\u00f3digo \u2705\nProgresso: [\u2588\u2588\u2588\u2588\u2588\u2588    ] 60%\n\nPreenchendo nome e idade/data...")
                     preencher_nome_idade(page, nome, nascimento)
                 else:
-                    edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Aguardando c\u00f3digo no Telegram...\nProgresso: [\u2588\u2588\u2588\u2588    ] 50%")
+                    edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Aguardando c\u00f3digo...\nProgresso: [\u2588\u2588\u2588\u2588    ] 50%")
 
-                    send_message(chat_id, f"{email}\nPrecisa do c\u00f3digo de verifica\u00e7\u00e3o (6 d\u00edgitos).\n\nManda aqui:")
+                    send_message(chat_id, f"{email}\nManda o c\u00f3digo de 6 d\u00edgitos:")
 
                     code = wait_for_code(chat_id, job_id, timeout=120)
 
                     if not code:
-                        edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\n\u274c Timeout (2 min). Reembolsando...")
+                        edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\n\u274c Timeout. Reembolsando...")
                         ajustar_saldo(chat_id, preco)
                         log_resultado(user_id, email, "TIMEOUT")
                         update_pool_status(user_id, email, "timeout")
@@ -410,7 +411,7 @@ Progresso: [          ] 0%"""
                     page.keyboard.press("Enter")
                     human_delay(3, 5)
 
-                    edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Preenchendo nome e data de nascimento...\nProgresso: [\u2588\u2588\u2588\u2588\u2588\u2588    ] 80%")
+                    edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Preenchendo nome e idade...\nProgresso: [\u2588\u2588\u2588\u2588\u2588\u2588    ] 80%")
                     preencher_nome_idade(page, nome, nascimento)
 
                 human_delay(2, 4)
@@ -422,7 +423,7 @@ Progresso: [          ] 0%"""
 \u2705 CONTA CRIADA COM SUCESSO!
 
 Email: `{email}`
-Copie e cole aqui: https://tempmailsuko.shop/en/infinity""")
+Copie e cole: https://tempmailsuko.shop/en/infinity""")
                     log_resultado(user_id, email, "SUCESSO")
                     update_pool_status(user_id, email, "done")
                 except:
