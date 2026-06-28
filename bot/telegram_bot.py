@@ -1,4 +1,6 @@
 import os
+import random
+import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 from db import (
@@ -20,6 +22,49 @@ def menu_principal():
     ]
     return InlineKeyboardMarkup(keyboard)
 
+def parece_conta(linha):
+    """Retorna True se a linha tem cara de email:senha:nome"""
+    partes = linha.split(":")
+    if len(partes) < 3:
+        return False
+    email = partes[0].strip()
+    return "@" in email and "." in email
+
+def processar_contas(linhas):
+    """Processa lista de linhas no formato email:senha:nome. Retorna (adicionadas, erros)."""
+    adicionadas = []
+    erros = []
+    for linha in linhas:
+        if not linha.strip():
+            continue
+        partes = linha.split(":")
+        if len(partes) < 3:
+            erros.append(f"`{linha}` — formato inválido (use email:senha:nome)")
+            continue
+
+        email = partes[0].strip()
+        senha = partes[1].strip()
+        nome = ":".join(partes[2:]).strip()
+
+        if not email or not senha or not nome:
+            erros.append(f"`{linha}` — campo vazio")
+            continue
+
+        if "@" not in email:
+            erros.append(f"`{linha}` — email inválido")
+            continue
+
+        ano = datetime.date.today().year - 22
+        mes = random.randint(1, 12)
+        max_dia = [31,28,31,30,31,30,31,31,30,31,30,31][mes-1]
+        dia = random.randint(1, max_dia)
+        nascimento = f"{dia:02d}/{mes:02d}/{ano}"
+
+        add_to_pool(email, senha, nome, nascimento)
+        adicionadas.append(f"`{email}` | {nome}")
+
+    return adicionadas, erros
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     init_db()
     await update.message.reply_text(
@@ -40,7 +85,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "pool":
         pool = get_pool()
         if not pool:
-            texto = "📋 *Pool vazia.*\n\nUsa ➕ Adicionar Conta pra colocar contas."
+            texto = "📋 *Pool vazia.*\n\nManda direto no chat: `email:senha:Nome`"
         else:
             texto = f"📋 *Pool ({len(pool)} pendentes):*\n\n"
             for i, c in enumerate(pool, 1):
@@ -48,7 +93,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(texto, parse_mode="Markdown", reply_markup=menu_principal())
 
     elif data == "add":
-        context.user_data["aguardando"] = "add"
         await query.edit_message_text(
             "➕ *Adicionar conta*\n\n"
             "Manda no formato:\n"
@@ -56,8 +100,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Exemplos:\n"
             "`teste@gmail.com:Senha123:João Silva`\n"
             "`outro@gmail.com:Pass456:Tony`\n\n"
+            "Pode mandar várias de uma vez, uma por linha.\n"
             "_A data de nascimento é gerada automaticamente._",
-            parse_mode="Markdown"
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🏠 Menu", callback_data="pool")]])
         )
 
     elif data == "clear":
@@ -105,39 +151,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     text = update.message.text.strip()
 
-    if context.user_data.get("aguardando") == "add":
-        # Suporta múltiplas contas de uma vez (uma por linha)
-        linhas = [l.strip() for l in text.splitlines() if l.strip()]
-        adicionadas = []
-        erros = []
+    # Código de verificação tem prioridade
+    if is_waiting_code(chat_id):
+        # Só salva como código se não parecer uma conta
+        if not parece_conta(text.splitlines()[0]):
+            save_codigo(chat_id, text.strip())
+            await update.message.reply_text("✅ Código salvo! O worker vai pegar automaticamente.")
+            return
 
-        for linha in linhas:
-            parts = linha.split(":")
-            if len(parts) < 3:
-                erros.append(f"`{linha}` — formato inválido")
-                continue
-
-            email = parts[0].strip()
-            senha = parts[1].strip()
-            nome = ":".join(parts[2:]).strip()  # suporta : no nome (improvável mas seguro)
-
-            if not email or not senha or not nome:
-                erros.append(f"`{linha}` — campo vazio")
-                continue
-
-            # Nascimento automático: 22 anos, dia e mês aleatórios
-            import random, datetime
-            ano = datetime.date.today().year - 22
-            mes = random.randint(1, 12)
-            # dias válidos por mês (sem leap year por simplicidade)
-            max_dia = [31,28,31,30,31,30,31,31,30,31,30,31][mes-1]
-            dia = random.randint(1, max_dia)
-            nascimento = f"{dia:02d}/{mes:02d}/{ano}"
-
-            add_to_pool(email, senha, nome, nascimento)
-            adicionadas.append(f"`{email}` | {nome}")
-
-        context.user_data["aguardando"] = None
+    # Detecta automaticamente se é conta(s) no formato email:senha:nome
+    linhas = [l.strip() for l in text.splitlines() if l.strip()]
+    if any(parece_conta(l) for l in linhas):
+        adicionadas, erros = processar_contas(linhas)
 
         resposta = ""
         if adicionadas:
@@ -149,17 +174,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             resposta.strip(),
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("➕ Adicionar mais", callback_data="add"),
-                InlineKeyboardButton("🏠 Menu", callback_data="pool")
+                InlineKeyboardButton("📋 Ver Pool", callback_data="pool"),
+                InlineKeyboardButton("🚀 Iniciar Job", callback_data="start_job")
             ]])
         )
         return
 
-    if is_waiting_code(chat_id):
-        save_codigo(chat_id, text)
-        await update.message.reply_text("✅ Código salvo! O worker vai pegar automaticamente.")
-        return
-
+    # Fallback: mostra menu
     await update.message.reply_text("🤖 Usa os botões abaixo:", reply_markup=menu_principal())
 
 def main():
