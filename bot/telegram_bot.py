@@ -57,17 +57,18 @@ def processar_texto(user_id, text):
 
 def menu_admin():
     keyboard = [
-        [InlineKeyboardButton("👥 Usuários", callback_data="adm_usuarios")],
-        [InlineKeyboardButton("🌐 Pool Global", callback_data="adm_pool")],
-        [InlineKeyboardButton("⚙️ Jobs Ativos", callback_data="adm_jobs")],
-        [InlineKeyboardButton("📈 Resultados", callback_data="adm_resultados")],
+        [InlineKeyboardButton("👥 Usuários", callback_data="adm_usuarios"),
+         InlineKeyboardButton("🌐 Pool Global", callback_data="adm_pool")],
+        [InlineKeyboardButton("⚙️ Jobs Ativos", callback_data="adm_jobs"),
+         InlineKeyboardButton("📈 Resultados", callback_data="adm_resultados")],
         [InlineKeyboardButton("💰 Preço", callback_data="adm_preco")],
-        [InlineKeyboardButton("💰 Dar Saldo", callback_data="adm_dar_saldo")],
-        [InlineKeyboardButton("➖ Tirar Saldo", callback_data="adm_tirar_saldo")],
+        [InlineKeyboardButton("💰 Dar Saldo", callback_data="adm_dar_saldo"),
+         InlineKeyboardButton("➖ Tirar Saldo", callback_data="adm_tirar_saldo")],
         [InlineKeyboardButton("🗑️ Limpar Pool", callback_data="adm_clear_pool")],
+        [InlineKeyboardButton("👤 Menu Usuário", callback_data="menu_user")],   # ← Botão novo
     ]
     return InlineKeyboardMarkup(keyboard)
-
+    
 def menu_usuario():
     keyboard = [
         [InlineKeyboardButton("📋 Pool", callback_data="pool")],
@@ -108,6 +109,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    elif data == "menu_user":
+    await query.edit_message_text("🤖 *Menu*", parse_mode="Markdown", reply_markup=menu_usuario())
     query = update.callback_query
     await query.answer()
     chat_id = query.message.chat_id
