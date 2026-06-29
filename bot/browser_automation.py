@@ -3,6 +3,7 @@ import random
 import re
 import datetime
 import requests
+from cloakbrowser import launch
 
 def human_delay(min_s=1.0, max_s=3.5):
     time.sleep(random.uniform(min_s, max_s))
@@ -226,7 +227,10 @@ def criar_conta(browser, conta, chat_id, user_id, job_id, preco, send_message_fu
 Estado: Iniciando cadastro... (paralelo)"""
     msg_id = send_message_func(chat_id, progress)
 
-    page = browser.new_page()
+    # Cada thread tem seu próprio browser (mais estável)
+    local_browser = launch(headless=False, humanize=True)
+    page = local_browser.new_page()
+
     try:
         page.goto("https://chatgpt.com")
         page.wait_for_load_state("networkidle")
@@ -246,6 +250,7 @@ Estado: Iniciando cadastro... (paralelo)"""
                 log_resultado_func(user_id, email, "ERRO_CADASTRO")
                 update_pool_status_func(user_id, email, "erro")
                 page.close()
+                local_browser.close()
                 return
 
         edit_message_func(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Colocando email...")
@@ -269,7 +274,7 @@ Estado: Iniciando cadastro... (paralelo)"""
 
         edit_message_func(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Buscando código...")
 
-        code = get_code_from_site(browser, email)
+        code = get_code_from_site(local_browser, email)
 
         if not code:
             edit_message_func(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Aguardando código no Telegram...")
@@ -282,6 +287,7 @@ Estado: Iniciando cadastro... (paralelo)"""
             log_resultado_func(user_id, email, "TIMEOUT")
             update_pool_status_func(user_id, email, "timeout")
             page.close()
+            local_browser.close()
             return
 
         edit_message_func(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Colocando código...")
@@ -328,6 +334,7 @@ Estado: Iniciando cadastro... (paralelo)"""
     finally:
         try:
             page.close()
+            local_browser.close()
         except:
             pass
 
