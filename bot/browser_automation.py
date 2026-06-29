@@ -3,6 +3,7 @@ import random
 import re
 import datetime
 import requests
+import traceback
 from cloakbrowser import launch
 
 def human_delay(min_s=1.0, max_s=3.5):
@@ -142,6 +143,22 @@ def preencher_nome_idade(page, nome, nascimento):
     human_delay(0.8, 1.5)
     click_concluir(page)
     human_delay(2, 4)
+
+    # ==================== NOVO: Clique no botão "Continuar" da tela "Tudo pronto" ====================
+    try:
+        for texto in ["Continuar", "Continue", "All set", "Tudo pronto"]:
+            try:
+                btn = page.get_by_text(texto, exact=False).first
+                if btn.is_visible(timeout=5000):
+                    btn.click()
+                    print("[FINAL] ✅ Clicou em 'Continuar' na tela 'Tudo pronto'")
+                    human_delay(2, 3)
+                    break
+            except:
+                continue
+    except Exception as e:
+        print(f"[FINAL] Erro ao tentar clicar Continuar: {e}")
+
 
 def calcular_idade(nascimento):
     try:
