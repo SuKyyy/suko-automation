@@ -75,37 +75,14 @@ def parse_conta(texto):
 
 def processar_texto(user_id, text):
     adicionadas = []
-    fragmento = None
-    resultado = parse_conta(text)
-    if resultado:
-        email, senha, nome = resultado
-        add_to_pool(user_id, email, senha, nome, gerar_nascimento())
-        return [f"{email} | {nome}"], None
     linhas = [l.strip() for l in text.splitlines() if l.strip()]
-    i = 0
-    while i < len(linhas):
-        linha = linhas[i]
+    for linha in linhas:
         resultado = parse_conta(linha)
         if resultado:
             email, senha, nome = resultado
             add_to_pool(user_id, email, senha, nome, gerar_nascimento())
             adicionadas.append(f"{email} | {nome}")
-            i += 1
-        elif "@" in linha:
-            if i + 1 < len(linhas):
-                junto = linha + linhas[i+1]
-                resultado = parse_conta(junto)
-                if resultado:
-                    email, senha, nome = resultado
-                    add_to_pool(user_id, email, senha, nome, gerar_nascimento())
-                    adicionadas.append(f"{email} | {nome}")
-                    i += 2
-                    continue
-            fragmento = linha
-            i += 1
-        else:
-            i += 1
-    return adicionadas, fragmento
+    return adicionadas, None
 
 # ==================== HANDLERS ====================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -139,7 +116,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("Usa /start primeiro.")
         return
 
-    # ==================== ADMIN ====================
     if data == "adm_menu":
         await query.edit_message_text("👑 *Admin Panel*", parse_mode="Markdown", reply_markup=menu_admin())
 
@@ -231,7 +207,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
 
-    # ==================== USUARIO ====================
     elif data == "perfil":
         preco = get_preco()
         pool = get_pool(chat_id)
@@ -333,7 +308,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     aguardando = context.user_data.get('aguardando')
 
-    # ==================== ADMIN INPUTS ====================
     if aguardando == 'adm_preco' and is_admin(chat_id):
         try:
             preco = float(text.replace(',', '.'))
@@ -376,13 +350,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Manda só o chat_id.")
         return
 
-    # ==================== CODIGO DE VERIFICACAO ====================
     if is_waiting_code(chat_id) and "@" not in text and text.strip().isdigit():
         save_codigo(chat_id, text.strip())
         await update.message.reply_text("✅ Código salvo! O worker vai pegar automaticamente.")
         return
 
-    # ==================== ADICIONAR CONTAS ====================
     tem_fragmento = chat_id in fragmento_buffer
     if "@" in text or tem_fragmento:
         if tem_fragmento:
@@ -414,7 +386,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-    # Default
     if is_admin(chat_id):
         await update.message.reply_text("👑 Admin Panel:", reply_markup=menu_admin())
     else:
