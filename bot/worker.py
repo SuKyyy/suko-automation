@@ -289,7 +289,11 @@ def get_body(msg):
             pass
     return body
 
-def get_verification_code(target_email, start_time):
+def get_verification_code(target_email):
+    """
+    Sempre pega o código mais recente encontrado para o email.
+    Checa a cada 5 segundos.
+    """
     domain = target_email.split("@")[-1].lower()
 
     if "gmail.com" in domain:
@@ -307,7 +311,7 @@ def get_verification_code(target_email, start_time):
         print("[IMAP] Credenciais não configuradas no .env")
         return None
 
-    print(f"[IMAP] Buscando código para {target_email}...")
+    print(f"[IMAP] Buscando código mais recente para {target_email}...")
 
     deadline = time.time() + 120
 
@@ -321,30 +325,21 @@ def get_verification_code(target_email, start_time):
             mail.select("INBOX")
 
             status, messages = mail.search(None, "ALL")
-            email_ids = messages[0].split()[-70:]
+            email_ids = messages[0].split()[-80:]
 
             for eid in reversed(email_ids):
                 status, msg_data = mail.fetch(eid, "(RFC822)")
                 raw_email = msg_data[0][1]
                 msg = email.message_from_bytes(raw_email)
 
-                date_tuple = email.utils.parsedate_tz(msg.get("Date"))
-                if date_tuple:
-                    email_time = datetime.datetime.fromtimestamp(email.utils.mktime_tz(date_tuple))
-                    if email_time < start_time:
-                        continue
-
                 from_addr = msg.get("From", "")
                 body = get_body(msg)
-
-                if "ChatGPT" in from_addr or "openai.com" in from_addr.lower():
-                    print(f"[IMAP DEBUG] ChatGPT email | target in body? {target_email.lower() in body.lower()}")
 
                 if target_email.lower() in body.lower():
                     match = re.search(r"\b(\d{6})\b", body)
                     if match:
                         code = match.group(1)
-                        print(f"[IMAP] \u2705 Código encontrado: {code}")
+                        print(f"[IMAP] \u2705 Código mais recente encontrado: {code}")
                         mail.close()
                         mail.logout()
                         return code
@@ -355,10 +350,10 @@ def get_verification_code(target_email, start_time):
         except Exception as e:
             print(f"[IMAP] Erro: {str(e)[:80]}")
 
-        print("[IMAP] Não encontrado... esperando 5s")
+        print("[IMAP] Não encontrado ainda... esperando 5s")
         time.sleep(5)
 
-    print("[IMAP] Timeout")
+    print("[IMAP] Timeout após 2 minutos")
     return None
 
 def preencher_nome_idade(page, nome, nascimento):
@@ -448,7 +443,6 @@ Progresso: [          ] 0%"""
 
                 current_url = page.url
 
-                # === NOVO: Trata página de login direta ===
                 if "/auth/login" in current_url or "Entrar ou cadastrar-se" in page.content():
                     print("[INFO] Página de login detectada - preenchendo email direto")
                     for sel in ["input[type='email']", "input[name='email']", "input[placeholder*='email' i]"]:
@@ -484,8 +478,7 @@ Progresso: [          ] 0%"""
                 ajustar_saldo(chat_id, -preco)
                 human_delay(3, 5)
 
-                start_time = datetime.datetime.now()
-                code = get_verification_code(email, start_time)
+                code = get_verification_code(email)
 
                 if code:
                     edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Código via IMAP \u2705")
