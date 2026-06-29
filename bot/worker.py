@@ -245,41 +245,41 @@ def wait_for_code(chat_id, job_id, timeout=120):
     return None
 
 def preencher_nome_idade(page, nome, nascimento):
-    # Nome completo
     for sel in ["input[name='name']", "input[placeholder*='nome' i]", "input[placeholder*='name' i]", "input[type='text']"]:
         if safe_fill(page, sel, nome): break
     human_delay(0.5, 1)
 
-    # Idade / Data de nascimento
     preencheu = False
-
-    # Tenta primeiro campos de data de nascimento
-    try:
-        el = page.locator("input[placeholder*='nascimento' i], input[placeholder*='data de nascimento' i], input[placeholder*='birth' i], input[type='date']").first
-        el.wait_for(timeout=2500)
-        el.fill(nascimento)
-        preencheu = True
-    except:
-        pass
-
-    if not preencheu:
+    for _ in range(3):  # Tenta até 3 vezes
         try:
-            el = page.locator("input[type='date']").first
+            el = page.locator("input[placeholder*='nascimento' i], input[placeholder*='data de nascimento' i], input[placeholder*='birth' i], input[type='date']").first
             el.wait_for(timeout=2000)
-            partes = nascimento.split("/")
-            if len(partes) == 3:
-                data_iso = f"{partes[2]}-{partes[1]}-{partes[0]}"
-                el.fill(data_iso)
+            el.fill(nascimento)
             preencheu = True
+            break
+        except:
+            try:
+                el = page.locator("input[type='date']").first
+                el.wait_for(timeout=1500)
+                partes = nascimento.split("/")
+                if len(partes) == 3:
+                    data_iso = f"{partes[2]}-{partes[1]}-{partes[0]}"
+                    el.fill(data_iso)
+                preencheu = True
+                break
+            except:
+                pass
+
+        try:
+            idade = calcular_idade(nascimento)
+            for sel in ["input[type='number']", "input[placeholder*='idade' i]", "input[placeholder*='age' i]", "input[name*='age' i]"]:
+                if safe_fill(page, sel, idade):
+                    preencheu = True
+                    break
         except:
             pass
 
-    if not preencheu:
-        idade = calcular_idade(nascimento)
-        for sel in ["input[type='number']", "input[placeholder*='idade' i]", "input[placeholder*='age' i]", "input[name*='age' i]"]:
-            if safe_fill(page, sel, idade):
-                preencheu = True
-                break
+        human_delay(0.8, 1.5)
 
     if not preencheu:
         try:
@@ -364,29 +364,50 @@ Progresso: [          ] 0%"""
 
                 human_delay(3, 5)
 
-                # === DETECÇÃO POR TENTATIVA DE PREENCHIMENTO ===
+                # === DETECÇÃO ROBUSTA ===
                 nome_ok = False
                 idade_ok = False
 
+                # Tenta preencher nome
                 try:
-                    page.locator("input[name='name'], input[placeholder*='nome' i]").first.fill(nome, timeout=4500)
+                    page.locator("input[name='name'], input[placeholder*='nome' i]").first.fill(nome, timeout=5000)
                     nome_ok = True
-                    human_delay(0.5, 1)
+                    human_delay(0.6, 1.2)
                 except:
                     pass
 
+                # Tenta preencher idade/data com força
                 if nome_ok:
-                    try:
-                        el = page.locator("input[placeholder*='nascimento' i], input[placeholder*='data de nascimento' i], input[placeholder*='birth' i], input[type='date']").first
-                        el.fill(nascimento, timeout=3500)
-                        idade_ok = True
-                    except:
+                    for tentativa in range(4):
+                        try:
+                            el = page.locator("input[placeholder*='nascimento' i], input[placeholder*='data de nascimento' i], input[placeholder*='birth' i], input[type='date']").first
+                            el.wait_for(timeout=2000)
+                            el.fill(nascimento)
+                            idade_ok = True
+                            break
+                        except:
+                            try:
+                                el = page.locator("input[type='date']").first
+                                el.wait_for(timeout=1500)
+                                partes = nascimento.split("/")
+                                if len(partes) == 3:
+                                    data_iso = f"{partes[2]}-{partes[1]}-{partes[0]}"
+                                    el.fill(data_iso)
+                                idade_ok = True
+                                break
+                            except:
+                                pass
+
                         try:
                             idade = calcular_idade(nascimento)
-                            page.locator("input[type='number'], input[placeholder*='idade' i]").first.fill(idade, timeout=3000)
-                            idade_ok = True
+                            for sel in ["input[type='number']", "input[placeholder*='idade' i]", "input[placeholder*='age' i]", "input[name*='age' i]"]:
+                                if safe_fill(page, sel, idade):
+                                    idade_ok = True
+                                    break
                         except:
                             pass
+
+                        human_delay(0.8, 1.5)
 
                 if nome_ok and idade_ok:
                     edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Pulou código \u2705\nProgresso: [\u2588\u2588\u2588\u2588\u2588\u2588    ] 70%")
