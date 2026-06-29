@@ -54,7 +54,6 @@ def update_pool_status(user_id, email, status):
         with conn.cursor() as cur:
             cur.execute("UPDATE pool SET status=%s WHERE user_id=%s AND email=%s", (status, user_id, email))
         conn.commit()
-    print(f"[DB] Pool atualizado: {email} -> {status}")
 
 def finish_job(job_id):
     with get_conn() as conn:
@@ -249,15 +248,13 @@ def wait_for_code_manual(chat_id, job_id, timeout=120):
         time.sleep(3)
     return None
 
-def get_code_from_site(page, target_email):
+def get_code_from_site(browser, target_email):
     email_page = None
     try:
-        # Abre como nova ABA no mesmo navegador (não nova janela)
-        email_page = page.context.new_page()
+        email_page = browser.new_page()
         email_page.goto("https://tempmailsuko.shop/pt/infinity")
         human_delay(1.5, 2.5)
 
-        # Cola o email
         for sel in ["input[placeholder*='email' i]", "input[type='email']", "input[name='email']"]:
             try:
                 email_page.fill(sel, target_email, timeout=5000)
@@ -269,7 +266,6 @@ def get_code_from_site(page, target_email):
         email_page.keyboard.press("Enter")
         print("[SITE] Email enviado, aguardando inbox...")
 
-        # Espera carregar algum email na lista
         try:
             email_page.wait_for_selector("text=ChatGPT, .email-item, [class*='email']", timeout=30000)
         except:
@@ -277,9 +273,8 @@ def get_code_from_site(page, target_email):
 
         human_delay(1, 2)
 
-        # Clica no email mais recente (primeiro da lista)
+        # Clica no email mais recente
         try:
-            # Tenta vários seletores possíveis
             selectors = [
                 ".email-item:first-child",
                 "[class*='email']:first-child",
@@ -296,7 +291,6 @@ def get_code_from_site(page, target_email):
                 except:
                     continue
             if not clicked:
-                # Fallback: clica no primeiro elemento que parece email
                 email_page.locator("text=ChatGPT").first.click(timeout=5000)
                 print("[SITE] Clicou no email (fallback)")
 
@@ -304,7 +298,6 @@ def get_code_from_site(page, target_email):
         except Exception as e:
             print(f"[SITE] Erro ao clicar no email: {e}")
 
-        # Espera o código aparecer
         try:
             email_page.wait_for_selector("text=CODIGO DETECTADO", timeout=60000)
             human_delay(1, 2)
@@ -458,7 +451,7 @@ Progresso: [          ] 0%"""
 
                 edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Buscando código no site...")
 
-                code = get_code_from_site(page, email)
+                code = get_code_from_site(browser, email)
 
                 if not code:
                     edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Aguardando código no Telegram...")
