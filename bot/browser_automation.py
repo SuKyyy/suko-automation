@@ -179,9 +179,10 @@ def get_code_from_site(browser, target_email):
         email_page.goto("https://tempmailsuko.shop/pt/infinity")
         human_delay(2, 3)
 
+        # Preenche o email
         for sel in ["input[placeholder*='email' i]", "input[type='email']", "input[name='email']"]:
             try:
-                email_page.fill(sel, target_email, timeout=6000)
+                email_page.fill(sel, target_email, timeout=8000)
                 break
             except:
                 continue
@@ -190,34 +191,49 @@ def get_code_from_site(browser, target_email):
         email_page.keyboard.press("Enter")
         print("[SITE] Email enviado. Aguardando inbox...")
 
+        # Espera a inbox carregar (aumentei o timeout)
         try:
-            email_page.wait_for_selector("text=ChatGPT", timeout=45000)
+            email_page.wait_for_selector("text=ChatGPT", timeout=60000)  # 60 segundos
             print("[SITE] Inbox carregou")
         except:
-            print("[SITE] Timeout esperando inbox")
+            print("[SITE] Timeout esperando inbox - tentando mesmo assim")
 
-        human_delay(2, 3)
+        human_delay(3, 5)
 
-        try:
-            email_page.locator("text=ChatGPT").first.click(timeout=8000)
-            print("[SITE] Clicou no email")
-            human_delay(2, 3)
-        except Exception as e:
-            print(f"[SITE] Erro ao clicar: {e}")
+        # Tenta clicar no email várias vezes
+        clicked = False
+        for attempt in range(5):  # Tenta 5 vezes
+            try:
+                email_page.locator("text=ChatGPT").first.click(timeout=8000)
+                print(f"[SITE] Clicou no email (tentativa {attempt + 1})")
+                clicked = True
+                break
+            except:
+                human_delay(2, 3)
+                print(f"[SITE] Tentativa {attempt + 1} de clicar no email falhou")
 
-        try:
-            human_delay(2, 4)
-            page_text = email_page.content()
-            match = re.search(r"\b(\d{6})\b", page_text)
-            if match:
-                code = match.group(1)
-                print(f"[SITE] ✅ Código encontrado na página: {code}")
-                email_page.close()
-                return code
-            print("[SITE] Nenhum código de 6 dígitos encontrado na página")
-        except Exception as e:
-            print(f"[SITE] Erro ao extrair código: {e}")
+        if not clicked:
+            print("[SITE] Não conseguiu clicar no email")
 
+        human_delay(3, 5)
+
+        # Tenta extrair o código várias vezes
+        for attempt in range(6):  # Tenta 6 vezes
+            try:
+                page_text = email_page.content()
+                match = re.search(r"\b(\d{6})\b", page_text)
+                if match:
+                    code = match.group(1)
+                    print(f"[SITE] ✅ Código encontrado: {code}")
+                    email_page.close()
+                    return code
+                print(f"[SITE] Código ainda não apareceu (tentativa {attempt + 1})")
+                human_delay(4, 6)
+            except Exception as e:
+                print(f"[SITE] Erro ao extrair código: {e}")
+                human_delay(3, 5)
+
+        print("[SITE] ❌ Não conseguiu pegar o código após várias tentativas")
         if email_page:
             email_page.close()
         return None
@@ -230,7 +246,6 @@ def get_code_from_site(browser, target_email):
             except:
                 pass
         return None
-
 def criar_conta(browser, conta, chat_id, user_id, job_id, preco, send_message_func, edit_message_func, log_resultado_func, update_pool_status_func, ajustar_saldo_func, wait_for_code_manual_func, send_discord_webhook_func):
     email = conta['email']
     senha = conta['senha']
