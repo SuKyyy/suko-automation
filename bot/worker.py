@@ -1,4 +1,3 @@
-import concurrent.futures
 import os
 import time
 import random
@@ -8,6 +7,7 @@ import sys
 import traceback
 import re
 import requests
+import concurrent.futures
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -92,31 +92,6 @@ def log_resultado(user_id, email, status):
             cur.execute("INSERT INTO resultados (user_id, email, status) VALUES (%s, %s, %s)", (user_id, email, status))
         conn.commit()
 
-def set_waiting_code(chat_id, waiting):
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            status = 'waiting_code' if waiting else 'running'
-            cur.execute(
-                "UPDATE jobs SET status=%s WHERE chat_id=%s AND status IN ('running','waiting_code')",
-                (status, chat_id)
-            )
-        conn.commit()
-
-def get_codigo(chat_id):
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT * FROM codigos WHERE chat_id=%s AND usado=FALSE ORDER BY criado_em DESC LIMIT 1",
-                (chat_id,)
-            )
-            return cur.fetchone()
-
-def mark_codigo_usado(codigo_id):
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute("UPDATE codigos SET usado=TRUE WHERE id=%s", (codigo_id,))
-        conn.commit()
-
 def get_preco():
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -167,7 +142,7 @@ def wait_for_code_manual(chat_id, job_id, timeout=120):
         if is_job_cancelled(job_id) or shutdown_flag:
             print("Job cancelado durante espera de codigo.")
             return None
-        row = get_codigo(chat_id)
+        row = get_codigo(chat_id)  # Adicione essa função se faltar
         if row:
             mark_codigo_usado(row['id'])
             return row['codigo']
@@ -190,7 +165,7 @@ def run_job(job):
         return
 
     total = len(pool)
-    send_message(chat_id, f"Job iniciado! Processando {total} conta(s) em paralelo (máx 2)...")
+    send_message(chat_id, f"🚀 Job iniciado! Processando {total} conta(s) em paralelo (máx 2)...")
 
     browser = launch(headless=False, humanize=True)
 
@@ -218,7 +193,6 @@ def run_job(job):
                 )
                 futures.append(future)
 
-            # Espera todas terminarem
             concurrent.futures.wait(futures)
 
     finally:
@@ -227,7 +201,7 @@ def run_job(job):
         except:
             pass
         finish_job(job_id)
-        send_message(chat_id, "Job finalizado! Use /start pra ver os resultados.")
+        send_message(chat_id, "✅ Job finalizado! Use /start pra ver os resultados.")
         print("Job finalizado!")
 
 
