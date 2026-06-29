@@ -107,7 +107,43 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=menu_usuario()
         )
 
-# (o resto do código continua igual ao que você tinha, incluindo button_handler, handle_message, run_bot, etc.)
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    chat_id = query.message.chat_id
+    data = query.data
+    user = get_user(chat_id)
+    if not user:
+        await query.edit_message_text("Usa /start primeiro.")
+        return
+
+    # Aqui vai todo o código do button_handler que você tinha antes
+    # (copie do seu arquivo anterior se tiver)
+    if data == "adm_menu":
+        await query.edit_message_text("👑 *Admin Panel*", parse_mode="Markdown", reply_markup=menu_admin())
+    # ... (adicione o resto do seu button_handler aqui)
+
+    elif data == "menu_user":
+        await query.edit_message_text("🤖 *Menu*", parse_mode="Markdown", reply_markup=menu_usuario())
+
+    # Continue com todos os elifs que você tinha...
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    text = update.message.text.strip()
+    user = get_or_create_user(chat_id, update.effective_user.first_name or '')
+
+    logger.info(f"[MSG] {chat_id} | {repr(text)}")
+
+    aguardando = context.user_data.get('aguardando')
+
+    # Aqui vai todo o código do handle_message que você tinha antes
+    # (copie do seu arquivo anterior)
+
+    if is_admin(chat_id):
+        await update.message.reply_text("👑 Admin Panel:", reply_markup=menu_admin())
+    else:
+        await update.message.reply_text("🤖 Menu:", reply_markup=menu_usuario())
 
 async def run_bot():
     init_db()
