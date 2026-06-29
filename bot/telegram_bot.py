@@ -1,9 +1,6 @@
-# telegram_bot.py corrigido
-
-import os
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from dotenv import load_dotenv
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -15,8 +12,6 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-fragmento_buffer = {}
 
 def get_conn():
     return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
@@ -34,7 +29,7 @@ def get_or_create_user(chat_id, nome):
 def add_to_pool(user_id, email, senha, nome, nascimento):
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute(""" 
+            cur.execute("""
                 INSERT INTO pool (user_id, email, senha, nome, nascimento, status)
                 VALUES (%s, %s, %s, %s, %s, 'pending')
                 ON CONFLICT (email) DO NOTHING
@@ -61,18 +56,16 @@ def parse_conta(texto):
 def processar_texto(user_id, text):
     adicionadas = []
     linhas = [l.strip() for l in text.splitlines() if l.strip()]
-    i = 0
-    while i < len(linhas):
-        linha = linhas[i]
+    for linha in linhas:
         resultado = parse_conta(linha)
         if resultado:
             email, senha, nome = resultado
             add_to_pool(user_id, email, senha, nome, "01/01/2000")
             adicionadas.append(f"{email} | {nome}")
-            i += 1
-        else:
-            i += 1
-    return adicionadas, None
+    return adicionadas
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Bot iniciado. Manda as contas no formato email:senha:Nome Completo (uma por linha)")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -80,16 +73,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = get_or_create_user(chat_id, update.effective_user.first_name or "")
 
     if "@" in text:
-        adicionadas, _ = processar_texto(chat_id, text)
+        adicionadas = processar_texto(chat_id, text)
         if adicionadas:
             resposta = f"\u2705 {len(adicionadas)} conta(s) adicionada(s):\n" + "\n".join(adicionadas)
             await update.message.reply_text(resposta)
         else:
-            await update.message.reply_text("Formato inválido. Use: email:senha:Nome Completo")
+            await update.message.reply_text("Nenhuma conta válida encontrada. Use o formato:\nemail:senha:Nome Completo")
         return
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Bot iniciado. Manda as contas no formato email:senha:Nome")
 
 def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
