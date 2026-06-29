@@ -84,9 +84,6 @@ def menu_spotify():
     ]
     return InlineKeyboardMarkup(keyboard)
 
-def menu_voltar_gpt():
-    return InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Voltar pro Menu GPT", callback_data="menu_gpt")]])
-
 def menu_admin():
     keyboard = [
         [InlineKeyboardButton("👥 Usuários", callback_data="adm_usuarios"),
@@ -97,7 +94,7 @@ def menu_admin():
         [InlineKeyboardButton("💰 Dar Saldo", callback_data="adm_dar_saldo"),
          InlineKeyboardButton("➖ Tirar Saldo", callback_data="adm_tirar_saldo")],
         [InlineKeyboardButton("🗑️ Limpar Pool", callback_data="adm_clear_pool")],
-        [InlineKeyboardButton("👤 Menu Usuário", callback_data="menu_gpt")],  # Corrigido
+        [InlineKeyboardButton("👤 Menu Usuário", callback_data="menu_gpt")],
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -138,16 +135,21 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("Usa /start primeiro.")
         return
 
+    # Navegação de serviços (prioridade alta)
     if data == "menu_gpt":
         await query.edit_message_text("🤖 *ChatGPT*", parse_mode="Markdown", reply_markup=menu_gpt())
+        return
     
-    elif data == "menu_spotify":
+    if data == "menu_spotify":
         await query.edit_message_text("🎵 *Spotify*", parse_mode="Markdown", reply_markup=menu_spotify())
+        return
     
-    elif data == "voltar_principal":
+    if data == "voltar_principal":
         await query.edit_message_text("🤖 *SuKo-9000*\n\nEscolha o serviço:", parse_mode="Markdown", reply_markup=menu_principal())
+        return
 
-    elif data == "pool":
+    # Menu GPT
+    if data == "pool":
         pool = get_pool(chat_id)
         if not pool:
             texto = "📋 Pool vazia.\n\nManda: `email:senha:Nome`"
@@ -156,19 +158,22 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for i, p in enumerate(pool, 1):
                 texto += f"{i}. `{p['email']}`\n"
         await query.edit_message_text(texto, parse_mode="Markdown", reply_markup=menu_gpt())
+        return
 
-    elif data == "add":
+    if data == "add":
         await query.edit_message_text(
             "➕ *Adicionar conta*\n\nFormato:\n`email:senha:Nome Completo`\n\nVárias de uma vez, uma por linha.",
             parse_mode="Markdown",
             reply_markup=menu_gpt()
         )
+        return
 
-    elif data == "clear":
+    if data == "clear":
         clear_pool(chat_id)
         await query.edit_message_text("🗑️ Pool limpa!", reply_markup=menu_gpt())
+        return
 
-    elif data == "status":
+    if data == "status":
         pool = get_pool(chat_id)
         job = get_active_job(chat_id)
         waiting = is_waiting_code(chat_id)
@@ -184,8 +189,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown",
             reply_markup=menu_gpt()
         )
+        return
 
-    elif data == "start_job":
+    if data == "start_job":
         pool = get_pool(chat_id)
         if not pool:
             await query.edit_message_text("⚠️ Pool vazia!", reply_markup=menu_gpt())
@@ -210,8 +216,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown",
             reply_markup=menu_gpt()
         )
+        return
 
-    elif data == "resultados":
+    if data == "resultados":
         rows = get_resultados(chat_id)
         if not rows:
             texto = "📈 Nenhum resultado ainda."
@@ -221,8 +228,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 emoji = "✅" if r['status'] == 'SUCESSO' else ("⚠️" if r['status'] == 'VERIFICAR' else "❌")
                 texto += f"{emoji} `{r['email']}` → {r['status']}\n"
         await query.edit_message_text(texto, parse_mode="Markdown", reply_markup=menu_gpt())
+        return
 
-    elif data == "perfil":
+    if data == "perfil":
         preco = get_preco()
         pool = get_pool(chat_id)
         resultados = get_resultados(chat_id)
@@ -238,12 +246,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown",
             reply_markup=menu_gpt()
         )
+        return
 
-    elif data == "adm_menu":
+    # Admin
+    if data == "adm_menu":
         await query.edit_message_text("👑 *Admin Panel*", parse_mode="Markdown", reply_markup=menu_admin())
-
-    elif data == "menu_gpt":
-        await query.edit_message_text("🤖 *ChatGPT*", parse_mode="Markdown", reply_markup=menu_gpt())
+        return
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
