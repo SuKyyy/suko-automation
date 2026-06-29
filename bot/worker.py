@@ -337,9 +337,8 @@ def get_verification_code(target_email, start_time):
                 from_addr = msg.get("From", "")
                 body = get_body(msg)
 
-                # Debug
                 if "ChatGPT" in from_addr or "openai.com" in from_addr.lower():
-                    print(f"[IMAP DEBUG] Encontrou email do ChatGPT | From: {from_addr[:60]} | Body contem target? {target_email.lower() in body.lower()}")
+                    print(f"[IMAP DEBUG] ChatGPT email | target in body? {target_email.lower() in body.lower()}")
 
                 if target_email.lower() in body.lower():
                     match = re.search(r"\b(\d{6})\b", body)
@@ -447,12 +446,23 @@ Progresso: [          ] 0%"""
                 page.wait_for_load_state("networkidle")
                 human_delay(2, 4)
 
-                if not click_cadastro(page):
-                    edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\n\u274c Falha ao encontrar botão de cadastro.")
-                    log_resultado(user_id, email, "ERRO_CADASTRO")
-                    update_pool_status(user_id, email, "erro")
-                    page.close()
-                    continue
+                current_url = page.url
+
+                # === NOVO: Trata página de login direta ===
+                if "/auth/login" in current_url or "Entrar ou cadastrar-se" in page.content():
+                    print("[INFO] Página de login detectada - preenchendo email direto")
+                    for sel in ["input[type='email']", "input[name='email']", "input[placeholder*='email' i]"]:
+                        if safe_fill(page, sel, email):
+                            break
+                    page.keyboard.press("Enter")
+                    human_delay(2, 3)
+                else:
+                    if not click_cadastro(page):
+                        edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\n\u274c Falha ao encontrar botão de cadastro.")
+                        log_resultado(user_id, email, "ERRO_CADASTRO")
+                        update_pool_status(user_id, email, "erro")
+                        page.close()
+                        continue
 
                 edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Colocando email...\nProgresso: [\u2588\u2588        ] 20%")
                 human_delay(1, 2)
