@@ -69,7 +69,6 @@ def menu_gpt():
         [InlineKeyboardButton("📋 Pool", callback_data="pool")],
         [InlineKeyboardButton("➕ Adicionar Conta", callback_data="add")],
         [InlineKeyboardButton("🗑️ Limpar Pool", callback_data="clear")],
-        [InlineKeyboardButton("📊 Status", callback_data="status")],
         [InlineKeyboardButton("🚀 Iniciar Job", callback_data="start_job")],
         [InlineKeyboardButton("📈 Resultados", callback_data="resultados")],
         [InlineKeyboardButton("👤 Perfil", callback_data="perfil")],
@@ -135,7 +134,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("Usa /start primeiro.")
         return
 
-    # Navegação de serviços (prioridade alta)
     if data == "menu_gpt":
         await query.edit_message_text("🤖 *ChatGPT*", parse_mode="Markdown", reply_markup=menu_gpt())
         return
@@ -148,7 +146,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("🤖 *SuKo-9000*\n\nEscolha o serviço:", parse_mode="Markdown", reply_markup=menu_principal())
         return
 
-    # Menu GPT
     if data == "pool":
         pool = get_pool(chat_id)
         if not pool:
@@ -171,24 +168,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "clear":
         clear_pool(chat_id)
         await query.edit_message_text("🗑️ Pool limpa!", reply_markup=menu_gpt())
-        return
-
-    if data == "status":
-        pool = get_pool(chat_id)
-        job = get_active_job(chat_id)
-        waiting = is_waiting_code(chat_id)
-        preco = get_preco()
-        custo_estimado = len(pool) * preco
-        await query.edit_message_text(
-            f"📊 *Status*\n\n"
-            f"Pool pendente: {len(pool)}\n"
-            f"Custo estimado: R$ {custo_estimado:.2f}\n"
-            f"Job ativo: {'✅' if job else '❌'}\n"
-            f"Aguardando código: {'✅' if waiting else '❌'}\n"
-            f"💰 Saldo: R$ {user['saldo']:.2f}",
-            parse_mode="Markdown",
-            reply_markup=menu_gpt()
-        )
         return
 
     if data == "start_job":
@@ -248,7 +227,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Admin
     if data == "adm_menu":
         await query.edit_message_text("👑 *Admin Panel*", parse_mode="Markdown", reply_markup=menu_admin())
         return
