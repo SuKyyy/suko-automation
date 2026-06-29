@@ -97,20 +97,18 @@ def menu_admin():
         [InlineKeyboardButton("💰 Dar Saldo", callback_data="adm_dar_saldo"),
          InlineKeyboardButton("➖ Tirar Saldo", callback_data="adm_tirar_saldo")],
         [InlineKeyboardButton("🗑️ Limpar Pool", callback_data="adm_clear_pool")],
-        [InlineKeyboardButton("👤 Menu Usuário", callback_data="menu_user")],
+        [InlineKeyboardButton("👤 Menu Usuário", callback_data="menu_gpt")],  # Corrigido
     ]
     return InlineKeyboardMarkup(keyboard)
 
 def menu_usuario():
-    return menu_gpt()  # Por enquanto usa o mesmo do GPT
+    return menu_gpt()
 
 def menu_voltar_admin():
     return InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Voltar", callback_data="adm_menu")]])
 
 def menu_voltar_user():
     return InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Menu", callback_data="menu_gpt")]])
-
-# ==================== HANDLERS ====================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -140,7 +138,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("Usa /start primeiro.")
         return
 
-    # ==================== NAVEGAÇÃO PRINCIPAL ====================
     if data == "menu_gpt":
         await query.edit_message_text("🤖 *ChatGPT*", parse_mode="Markdown", reply_markup=menu_gpt())
     
@@ -150,7 +147,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "voltar_principal":
         await query.edit_message_text("🤖 *SuKo-9000*\n\nEscolha o serviço:", parse_mode="Markdown", reply_markup=menu_principal())
 
-    # ==================== MENU GPT ====================
     elif data == "pool":
         pool = get_pool(chat_id)
         if not pool:
@@ -243,11 +239,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=menu_gpt()
         )
 
-    # ==================== ADMIN (mantido) ====================
     elif data == "adm_menu":
         await query.edit_message_text("👑 *Admin Panel*", parse_mode="Markdown", reply_markup=menu_admin())
 
-    # ... (resto do código admin continua igual)
+    elif data == "menu_gpt":
+        await query.edit_message_text("🤖 *ChatGPT*", parse_mode="Markdown", reply_markup=menu_gpt())
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
