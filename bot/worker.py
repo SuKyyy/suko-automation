@@ -1,3 +1,4 @@
+import concurrent.futures
 import os
 import time
 import random
@@ -189,47 +190,37 @@ def run_job(job):
         return
 
     total = len(pool)
-    send_message(chat_id, f"Job iniciado! Processando {total} conta(s)...")
+    send_message(chat_id, f"Job iniciado! Processando {total} conta(s) em paralelo (máx 2)...")
+
     browser = launch(headless=False, humanize=True)
 
     try:
-        for i, conta in enumerate(pool, 1):
-            if is_job_cancelled(job_id) or shutdown_flag:
-                send_message(chat_id, "Job cancelado.")
-                break
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            futures = []
+            for conta in pool:
+                if is_job_cancelled(job_id) or shutdown_flag:
+                    break
+                future = executor.submit(
+                    criar_conta,
+                    browser,
+                    conta,
+                    chat_id,
+                    user_id,
+                    job_id,
+                    preco,
+                    send_message,
+                    edit_message,
+                    log_resultado,
+                    update_pool_status,
+                    ajustar_saldo,
+                    wait_for_code_manual,
+                    send_discord_webhook
+                )
+                futures.append(future)
 
-            email = conta['email']
-            senha = conta['senha']
-            nome = conta.get('nome', '')
-            nascimento = conta.get('nascimento', '')
+            # Espera todas terminarem
+            concurrent.futures.wait(futures)
 
-            print(f"\n=== Criando: {email} ===")
-
-            progress = f"""\ud83d\udccc {email}
-
-Estado: Iniciando cadastro...
-Progresso: [          ] 0%"""
-            msg_id = send_message(chat_id, progress)
-
-            # Chama a função movida
-            criar_conta(
-                browser, 
-                conta, 
-                chat_id, 
-                user_id, 
-                job_id, 
-                preco,
-                send_message,
-                edit_message,
-                log_resultado,
-                update_pool_status,
-                ajustar_saldo,
-                wait_for_code_manual,
-                send_discord_webhook
-            )
-
-            if shutdown_flag:
-                break
     finally:
         try:
             browser.close()
