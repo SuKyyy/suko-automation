@@ -54,6 +54,7 @@ def update_pool_status(user_id, email, status):
         with conn.cursor() as cur:
             cur.execute("UPDATE pool SET status=%s WHERE user_id=%s AND email=%s", (status, user_id, email))
         conn.commit()
+    print(f"[DB] Pool atualizado: {email} -> {status}")
 
 def finish_job(job_id):
     with get_conn() as conn:
@@ -253,67 +254,70 @@ def get_code_from_site(browser, target_email):
     try:
         email_page = browser.new_page()
         email_page.goto("https://tempmailsuko.shop/pt/infinity")
-        human_delay(1.5, 2.5)
+        human_delay(2, 3)
 
+        # Cola o email
         for sel in ["input[placeholder*='email' i]", "input[type='email']", "input[name='email']"]:
             try:
-                email_page.fill(sel, target_email, timeout=5000)
+                email_page.fill(sel, target_email, timeout=6000)
                 break
             except:
                 continue
 
-        human_delay(0.8, 1.5)
-        email_page.keyboard.press("Enter")
-        print("[SITE] Email enviado, aguardando inbox...")
-
-        try:
-            email_page.wait_for_selector("text=ChatGPT, .email-item, [class*='email']", timeout=30000)
-        except:
-            print("[SITE] Inbox demorou para carregar")
-
         human_delay(1, 2)
+        email_page.keyboard.press("Enter")
+        print("[SITE] Email enviado. Aguardando inbox carregar...")
 
-        # Clica no email mais recente
+        # Espera bem mais tempo pela inbox
         try:
-            selectors = [
-                ".email-item:first-child",
-                "[class*='email']:first-child",
-                "text=ChatGPT >> xpath=..",
-                "div[class*='email'] >> nth=0"
-            ]
-            clicked = False
-            for sel in selectors:
-                try:
-                    email_page.locator(sel).first.click(timeout=4000)
-                    clicked = True
-                    print("[SITE] Clicou no email mais recente")
-                    break
-                except:
-                    continue
-            if not clicked:
-                email_page.locator("text=ChatGPT").first.click(timeout=5000)
-                print("[SITE] Clicou no email (fallback)")
-
-            human_delay(1.5, 2.5)
-        except Exception as e:
-            print(f"[SITE] Erro ao clicar no email: {e}")
-
-        try:
-            email_page.wait_for_selector("text=CODIGO DETECTADO", timeout=60000)
-            human_delay(1, 2)
-
-            code_element = email_page.locator("text=CODIGO DETECTADO").first
-            code_text = code_element.inner_text()
-
-            match = re.search(r"\b(\d{6})\b", code_text)
-            if match:
-                code = match.group(1)
-                print(f"[SITE] \u2705 Código capturado: {code}")
-                email_page.close()
-                return code
-
+            email_page.wait_for_selector("text=ChatGPT", timeout=45000)
+            print("[SITE] Inbox carregou")
         except:
-            print("[SITE] Não apareceu 'CODIGO DETECTADO'")
+            print("[SITE] Timeout esperando inbox")
+
+        human_delay(2, 3)
+
+        # Tenta clicar no primeiro email da lista de forma agressiva
+        clicked = False
+        try:
+            # Tenta clicar no primeiro item que contenha "ChatGPT"
+            email_page.locator("text=ChatGPT").first.click(timeout=8000)
+            clicked = True
+            print("[SITE] Clicou no email via text=ChatGPT")
+        except:
+            pass
+
+        if not clicked:
+            try:
+                # Fallback: clica no primeiro elemento clicável da lista
+                email_page.locator("div, li, tr").first.click(timeout=5000)
+                clicked = True
+                print("[SITE] Clicou no primeiro elemento da lista (fallback)")
+            except:
+                pass
+
+        if clicked:
+            human_delay(2, 3)
+            print("[SITE] Aguardando código aparecer...")
+
+            try:
+                email_page.wait_for_selector("text=CODIGO DETECTADO", timeout=60000)
+                human_delay(1, 2)
+
+                code_element = email_page.locator("text=CODIGO DETECTADO").first
+                code_text = code_element.inner_text()
+
+                match = re.search(r"\b(\d{6})\b", code_text)
+                if match:
+                    code = match.group(1)
+                    print(f"[SITE] \u2705 Código capturado: {code}")
+                    email_page.close()
+                    return code
+
+            except:
+                print("[SITE] Não apareceu 'CODIGO DETECTADO' após clicar")
+        else:
+            print("[SITE] Não conseguiu clicar em nenhum email")
 
         if email_page:
             email_page.close()
