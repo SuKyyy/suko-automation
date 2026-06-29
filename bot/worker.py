@@ -1,7 +1,3 @@
-from browser_automation import (
-    ... (as funções que já tem)
-    send_discord_webhook
-)
 import os
 import time
 import random
@@ -30,7 +26,8 @@ from browser_automation import (
     click_concluir,
     preencher_nome_idade,
     get_code_from_site,
-    criar_conta
+    criar_conta,
+    send_discord_webhook
 )
 
 shutdown_flag = False
@@ -228,8 +225,8 @@ Progresso: [          ] 0%"""
                 update_pool_status,
                 ajustar_saldo,
                 wait_for_code_manual,
-                send_discord_webhook   # <--- adicione essa linha
-)
+                send_discord_webhook
+            )
 
             if shutdown_flag:
                 break
