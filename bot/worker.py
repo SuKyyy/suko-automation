@@ -249,15 +249,13 @@ def wait_for_code_manual(chat_id, job_id, timeout=120):
     return None
 
 def get_code_from_site(browser, target_email):
-    """
-    Abre o site de email temporário, cola o email e pega o código detectado.
-    """
     email_page = None
     try:
         email_page = browser.new_page()
         email_page.goto("https://tempmailsuko.shop/pt/infinity")
-        human_delay(1, 2)
+        human_delay(1.5, 2.5)
 
+        # Cola o email
         for sel in ["input[placeholder*='email' i]", "input[type='email']", "input[name='email']"]:
             try:
                 email_page.fill(sel, target_email, timeout=5000)
@@ -265,20 +263,33 @@ def get_code_from_site(browser, target_email):
             except:
                 continue
 
-        human_delay(1, 2)
+        human_delay(0.8, 1.5)
         email_page.keyboard.press("Enter")
-        print("[SITE] Email colado, esperando detecção do código...")
+        print("[SITE] Email enviado, aguardando inbox...")
 
+        # Espera a inbox carregar (procura por algum email)
         try:
-            email_page.wait_for_selector("text=CODIGO DETECTADO", timeout=90000)
+            email_page.wait_for_selector(".email-item, [class*='email'], text=ChatGPT", timeout=30000)
+        except:
+            print("[SITE] Inbox demorou para carregar")
+
+        human_delay(1, 2)
+
+        # Clica no email mais recente (primeiro da lista)
+        try:
+            first_email = email_page.locator(".email-item, [class*='email'], text=ChatGPT").first
+            first_email.click()
+            print("[SITE] Clicou no email mais recente")
+            human_delay(1.5, 2.5)
+        except Exception as e:
+            print(f"[SITE] Erro ao clicar no email: {e}")
+
+        # Espera o código aparecer
+        try:
+            email_page.wait_for_selector("text=CODIGO DETECTADO", timeout=60000)
             human_delay(1, 2)
 
-            try:
-                email_page.click("text=CODIGO DETECTADO")
-                human_delay(0.5, 1)
-            except:
-                pass
-
+            # Pega o texto do código
             code_element = email_page.locator("text=CODIGO DETECTADO").first
             code_text = code_element.inner_text()
 
@@ -290,14 +301,14 @@ def get_code_from_site(browser, target_email):
                 return code
 
         except:
-            print("[SITE] Não detectou código no tempo limite")
+            print("[SITE] Não apareceu 'CODIGO DETECTADO'")
 
         if email_page:
             email_page.close()
         return None
 
     except Exception as e:
-        print(f"[SITE] Erro ao usar site de email: {e}")
+        print(f"[SITE] Erro geral: {e}")
         if email_page:
             try:
                 email_page.close()
