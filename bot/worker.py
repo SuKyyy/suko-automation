@@ -228,8 +228,8 @@ Progresso: [          ] 0%"""
                 update_pool_status,
                 ajustar_saldo,
                 wait_for_code_manual,
-                None  # send_discord_webhook (pode adicionar depois)
-            )
+                send_discord_webhook   # <--- adicione essa linha
+)
 
             if shutdown_flag:
                 break
