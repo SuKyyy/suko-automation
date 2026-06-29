@@ -5,6 +5,10 @@ import datetime
 import signal
 import sys
 import traceback
+import re
+import imaplib
+import email
+from email.header import decode_header
 import requests
 from dotenv import load_dotenv
 
@@ -12,6 +16,18 @@ load_dotenv()
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 DATABASE_URL = os.environ.get("DATABASE_URL")
+
+# IMAP Gmail Catchall
+IMAP_GMAIL_HOST = os.environ.get("IMAP_GMAIL_HOST", "imap.titan.email")
+IMAP_GMAIL_PORT = int(os.environ.get("IMAP_GMAIL_PORT", 993))
+IMAP_GMAIL_USER = os.environ.get("IMAP_GMAIL_USER")
+IMAP_GMAIL_PASSWORD = os.environ.get("IMAP_GMAIL_PASSWORD")
+
+# IMAP Outlook/Hotmail Catchall
+IMAP_OUTLOOK_HOST = os.environ.get("IMAP_OUTLOOK_HOST", "imap.titan.email")
+IMAP_OUTLOOK_PORT = int(os.environ.get("IMAP_OUTLOOK_PORT", 993))
+IMAP_OUTLOOK_USER = os.environ.get("IMAP_OUTLOOK_USER")
+IMAP_OUTLOOK_PASSWORD = os.environ.get("IMAP_OUTLOOK_PASSWORD")
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -53,7 +69,6 @@ def update_pool_status(user_id, email, status):
         with conn.cursor() as cur:
             cur.execute("UPDATE pool SET status=%s WHERE user_id=%s AND email=%s", (status, user_id, email))
         conn.commit()
-    print(f"[DB] Pool atualizado: {email} -> {status}")
 
 def finish_job(job_id):
     with get_conn() as conn:
@@ -142,11 +157,6 @@ def edit_message(chat_id, message_id, text):
     except:
         pass
 
-def create_progress_bar(percent):
-    filled = int(percent / 10)
-    bar = "█" * filled + "░" * (10 - filled)
-    return f"[{bar}] {percent}%"
-
 def human_delay(min_s=1.0, max_s=3.5):
     time.sleep(random.uniform(min_s, max_s))
 
@@ -160,10 +170,7 @@ def click_cadastro(page):
         "a:has-text('Cadastre-se')",
         "button:has-text('Get started')",
         "a:has-text('Get started')",
-        "button:has-text('Sign up for free')",
-        "a:has-text('Sign up for free')",
     ]
-
     for sel in selectors:
         try:
             el = page.locator(sel).first
@@ -174,28 +181,13 @@ def click_cadastro(page):
         except:
             continue
 
-    textos = ["Sign up", "Cadastre-se", "Get started", "Sign up for free", "Cadastre-se gratuitamente", "Create account", "Criar conta"]
+    textos = ["Sign up", "Cadastre-se", "Get started", "Sign up for free", "Cadastre-se gratuitamente"]
     for texto in textos:
         try:
             page.get_by_text(texto, exact=False).first.click(timeout=5000)
             return True
         except:
             continue
-
-    try:
-        btns = page.locator("button, a[role='button']").all()
-        for btn in btns:
-            try:
-                txt = btn.inner_text()
-                if any(p in txt.lower() for p in ["sign up", "cadastre", "get started", "create account"]):
-                    btn.scroll_into_view_if_needed()
-                    btn.click()
-                    return True
-            except:
-                continue
-    except:
-        pass
-
     return False
 
 def safe_fill(page, selector, value, timeout=8000):
@@ -206,19 +198,22 @@ def safe_fill(page, selector, value, timeout=8000):
         try:
             page.fill(selector, value, timeout=timeout)
             return True
-        except: return False
+        except:
+            return False
 
 def safe_click_text(page, *textos, timeout=8000):
     for texto in textos:
         try:
             page.locator(f"button:has-text('{texto}')").first.click(timeout=timeout)
             return True
-        except: pass
+        except:
+            pass
     for texto in textos:
         try:
             page.get_by_text(texto, exact=True).first.click(timeout=timeout)
             return True
-        except: pass
+        except:
+            pass
     return False
 
 def click_concluir(page):
@@ -254,8 +249,8 @@ def click_concluir(page):
         pass
     return False
 
-def wait_for_code(chat_id, job_id, timeout=120):
-    print("Aguardando codigo pelo Telegram...")
+def wait_for_code_manual(chat_id, job_id, timeout=120):
+    print("Aguardando codigo pelo Telegram (manual)...")
     start = time.time()
     while time.time() - start < timeout:
         if is_job_cancelled(job_id) or shutdown_flag:
@@ -268,29 +263,92 @@ def wait_for_code(chat_id, job_id, timeout=120):
         time.sleep(3)
     return None
 
+def get_verification_code(target_email):
+    """
+    Busca o código de verificação no IMAP (Titan Mail).
+    Suporta dois catchalls: Gmail e Outlook/Hotmail.
+    """
+    domain = target_email.split("@")[-1].lower()
+
+    if "gmail.com" in domain:
+        host = IMAP_GMAIL_HOST
+        port = IMAP_GMAIL_PORT
+        user = IMAP_GMAIL_USER
+        password = IMAP_GMAIL_PASSWORD
+        print(f"[IMAP] Usando Gmail catchall para {target_email}")
+    else:
+        host = IMAP_OUTLOOK_HOST
+        port = IMAP_OUTLOOK_PORT
+        user = IMAP_OUTLOOK_USER
+        password = IMAP_OUTLOOK_PASSWORD
+        print(f"[IMAP] Usando Outlook/Hotmail catchall para {target_email}")
+
+    if not user or not password:
+        print("[IMAP] Credenciais IMAP não configuradas no .env")
+        return None
+
+    try:
+        mail = imaplib.IMAP4_SSL(host, port)
+        mail.login(user, password)
+        mail.select("INBOX")
+
+        # Pega os últimos 30 emails
+        status, messages = mail.search(None, "ALL")
+        email_ids = messages[0].split()[-30:]
+
+        for eid in reversed(email_ids):
+            status, msg_data = mail.fetch(eid, "(RFC822)")
+            raw_email = msg_data[0][1]
+            msg = email.message_from_bytes(raw_email)
+
+            # Pega o assunto e corpo
+            subject = decode_header(msg["Subject"])[0][0]
+            if isinstance(subject, bytes):
+                subject = subject.decode()
+
+            body = ""
+            if msg.is_multipart():
+                for part in msg.walk():
+                    if part.get_content_type() == "text/plain":
+                        body = part.get_payload(decode=True).decode(errors="ignore")
+                        break
+            else:
+                body = msg.get_payload(decode=True).decode(errors="ignore")
+
+            # Verifica se o email é do ChatGPT e contém o email alvo
+            from_addr = msg.get("From", "")
+            if "ChatGPT" in from_addr or "openai.com" in from_addr.lower():
+                if target_email.lower() in body.lower() or target_email.lower() in subject.lower():
+                    # Procura código de 6 dígitos
+                    match = re.search(r"\b(\d{6})\b", body)
+                    if match:
+                        code = match.group(1)
+                        print(f"[IMAP] Código encontrado: {code} para {target_email}")
+                        mail.close()
+                        mail.logout()
+                        return code
+
+        mail.close()
+        mail.logout()
+        print(f"[IMAP] Nenhum código encontrado para {target_email}")
+        return None
+
+    except Exception as e:
+        print(f"[IMAP] Erro ao conectar ou buscar código: {e}")
+        return None
+
 def preencher_nome_idade(page, nome, nascimento):
-    # Nome
-    for sel in ["input[name='name']", "input[placeholder*='nome' i]", "input[placeholder*='name' i]", "input[type='text']"]:
-        if safe_fill(page, sel, nome): break
+    for sel in ["input[name='name']", "input[placeholder*='nome' i]", "input[placeholder*='name' i]"]:
+        if safe_fill(page, sel, nome):
+            break
     human_delay(0.5, 1)
 
-    # Idade - TENTATIVA AGRESSIVA
     preencheu = False
-    seletores_idade = [
-        "input[placeholder*='idade' i]",
-        "input[placeholder='Idade']",
-        "input[placeholder*='age' i]",
-        "input[name*='age' i]",
-        "input[type='number']",
-        "input[placeholder*='nascimento' i]",
-        "input[placeholder*='data de nascimento' i]",
-        "input[placeholder*='birth' i]",
-        "input[type='date']"
-    ]
-
-    for _ in range(5):  # 5 tentativas
-        for sel in seletores_idade:
-            if safe_fill(page, sel, nascimento if 'data' in sel.lower() or 'nasc' in sel.lower() or 'birth' in sel.lower() else calcular_idade(nascimento)):
+    for _ in range(5):
+        for sel in ["input[placeholder='Idade']", "input[placeholder*='idade' i]", "input[placeholder*='age' i]", 
+                    "input[type='number']", "input[placeholder*='nascimento' i]", "input[placeholder*='data' i]", "input[type='date']"]:
+            val = nascimento if 'data' in sel.lower() or 'nasc' in sel.lower() else str(calcular_idade(nascimento))
+            if safe_fill(page, sel, val):
                 preencheu = True
                 break
         if preencheu:
@@ -301,13 +359,25 @@ def preencher_nome_idade(page, nome, nascimento):
         try:
             inputs = page.locator("input[type='text'], input[type='number']").all()
             if len(inputs) >= 2:
-                inputs[1].fill(calcular_idade(nascimento))
+                inputs[1].fill(str(calcular_idade(nascimento)))
         except:
             pass
 
     human_delay(0.5, 1)
     click_concluir(page)
     human_delay(2, 4)
+
+def calcular_idade(nascimento):
+    try:
+        partes = nascimento.split("/")
+        if len(partes) == 3:
+            dia, mes, ano = int(partes[0]), int(partes[1]), int(partes[2])
+            hoje = datetime.date.today()
+            idade = hoje.year - ano - ((hoje.month, hoje.day) < (mes, dia))
+            return str(idade)
+    except:
+        pass
+    return "18"
 
 def run_job(job):
     from cloakbrowser import launch
@@ -374,73 +444,45 @@ Progresso: [          ] 0%"""
                 for sel in ["input[type='password']", "input[name='password']"]:
                     if safe_fill(page, sel, senha): break
                 page.keyboard.press("Enter")
-                human_delay(3, 5)
+                human_delay(4, 6)
 
                 ajustar_saldo(chat_id, -preco)
-
                 human_delay(3, 5)
 
-                # === NOVA LÓGICA MAIS DIRETA ===
-                nome_ok = False
-                idade_ok = False
+                # === LÓGICA COM IMAP ===
+                code = get_verification_code(email)
 
-                # Preencher nome
-                try:
-                    page.locator("input[name='name'], input[placeholder*='nome' i]").first.fill(nome, timeout=5000)
-                    nome_ok = True
-                    human_delay(0.6, 1.2)
-                except:
-                    pass
-
-                # Preencher idade com força
-                if nome_ok:
-                    for tentativa in range(5):
+                if code:
+                    edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Código encontrado via IMAP \u2705\nProgresso: [\u2588\u2588\u2588\u2588\u2588    ] 60%")
+                    # Preencher código automaticamente
+                    preencheu = False
+                    for sel in ["input[placeholder*='digito' i]", "input[placeholder*='codigo' i]", "input[placeholder*='code' i]", "input[type='text']"]:
                         try:
-                            # Tenta placeholder exato 'Idade'
-                            if safe_fill(page, "input[placeholder='Idade']", calcular_idade(nascimento)):
-                                idade_ok = True
-                                break
-                            # Outros seletores
-                            for sel in ["input[placeholder*='idade' i]", "input[placeholder*='age' i]", "input[type='number']", "input[placeholder*='nascimento' i]", "input[placeholder*='data' i]", "input[type='date']"]:
-                                if safe_fill(page, sel, nascimento if 'data' in sel.lower() or 'nasc' in sel.lower() else calcular_idade(nascimento)):
-                                    idade_ok = True
-                                    break
-                            if idade_ok:
-                                break
+                            page.wait_for_selector(sel, timeout=3000)
+                            page.fill(sel, code)
+                            preencheu = True
+                            break
                         except:
-                            pass
-                        human_delay(0.8, 1.5)
+                            continue
+                    if not preencheu:
+                        page.keyboard.type(code)
+                    page.keyboard.press("Enter")
+                    human_delay(4, 6)
 
-                if nome_ok and idade_ok:
-                    edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Pulou código \u2705\nProgresso: [\u2588\u2588\u2588\u2588\u2588\u2588    ] 70%")
-                    click_concluir(page)
-                    human_delay(2, 4)
-
-                    try:
-                        page.wait_for_selector("text=ChatGPT", timeout=10000)
-                        edit_message(chat_id, msg_id, f"""\ud83d\udccc {email}
-
-\u2705 CONTA CRIADA COM SUCESSO!
-
-Email: `{email}`
-Copie e cole: https://tempmailsuko.shop/en/infinity""")
-                        log_resultado(user_id, email, "SUCESSO")
-                        update_pool_status(user_id, email, "done")
-                    except:
-                        edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\n\u26a0️ Pode precisar de verificação manual.\n\nEmail: `{email}`")
-                        log_resultado(user_id, email, "VERIFICAR")
-                        update_pool_status(user_id, email, "verificar")
-                        ajustar_saldo(chat_id, preco)
+                    edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Preenchendo nome e idade...
+Progresso: [\u2588\u2588\u2588\u2588\u2588\u2588    ] 80%")
+                    preencher_nome_idade(page, nome, nascimento)
 
                 else:
-                    edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Aguardando código...\nProgresso: [\u2588\u2588\u2588\u2588    ] 50%")
-
+                    # Fallback manual via Telegram
+                    edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Aguardando código no Telegram...
+Progresso: [\u2588\u2588\u2588\u2588    ] 50%")
                     send_message(chat_id, f"{email}\nManda o código de 6 dígitos:")
 
-                    code = wait_for_code(chat_id, job_id, timeout=120)
+                    code = wait_for_code_manual(chat_id, job_id, timeout=120)
 
                     if not code:
-                        edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\n\u274c Timeout (2 min). Reembolsando...")
+                        edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\n\u274c Timeout. Reembolsando...")
                         ajustar_saldo(chat_id, preco)
                         log_resultado(user_id, email, "TIMEOUT")
                         update_pool_status(user_id, email, "timeout")
@@ -450,7 +492,7 @@ Copie e cole: https://tempmailsuko.shop/en/infinity""")
                     edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Colocando código...\nProgresso: [\u2588\u2588\u2588\u2588\u2588    ] 70%")
 
                     preencheu = False
-                    for sel in ["input[placeholder*='digito' i]", "input[placeholder*='codigo' i]", "input[placeholder*='code' i]", "input[name*='code' i]", "input[inputmode='numeric']", "input[type='text']"]:
+                    for sel in ["input[placeholder*='digito' i]", "input[placeholder*='codigo' i]", "input[placeholder*='code' i]", "input[type='text']"]:
                         try:
                             page.wait_for_selector(sel, timeout=3000)
                             page.fill(sel, code)
@@ -462,40 +504,28 @@ Copie e cole: https://tempmailsuko.shop/en/infinity""")
                         page.keyboard.type(code)
 
                     page.keyboard.press("Enter")
-                    human_delay(3, 5)
+                    human_delay(4, 6)
 
                     edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Preenchendo nome e idade...\nProgresso: [\u2588\u2588\u2588\u2588\u2588\u2588    ] 80%")
+                    preencher_nome_idade(page, nome, nascimento)
 
-                    try:
-                        page.locator("input[name='name'], input[placeholder*='nome' i]").first.fill(nome, timeout=4000)
-                        human_delay(0.5, 1)
-                        try:
-                            el = page.locator("input[placeholder*='nascimento' i], input[placeholder*='data' i], input[type='date']").first
-                            el.fill(nascimento, timeout=3000)
-                        except:
-                            idade = calcular_idade(nascimento)
-                            page.locator("input[type='number'], input[placeholder*='idade' i]").first.fill(idade, timeout=2500)
-                    except:
-                        pass
+                human_delay(2, 4)
 
-                    click_concluir(page)
-                    human_delay(2, 4)
-
-                    try:
-                        page.wait_for_selector("text=ChatGPT", timeout=10000)
-                        edit_message(chat_id, msg_id, f"""\ud83d\udccc {email}
+                try:
+                    page.wait_for_selector("text=ChatGPT", timeout=10000)
+                    edit_message(chat_id, msg_id, f"""\ud83d\udccc {email}
 
 \u2705 CONTA CRIADA COM SUCESSO!
 
 Email: `{email}`
 Copie e cole: https://tempmailsuko.shop/en/infinity""")
-                        log_resultado(user_id, email, "SUCESSO")
-                        update_pool_status(user_id, email, "done")
-                    except:
-                        edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\n\u26a0️ Pode precisar de verificação manual.\n\nEmail: `{email}`")
-                        log_resultado(user_id, email, "VERIFICAR")
-                        update_pool_status(user_id, email, "verificar")
-                        ajustar_saldo(chat_id, preco)
+                    log_resultado(user_id, email, "SUCESSO")
+                    update_pool_status(user_id, email, "done")
+                except:
+                    edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\n\u26a0️ Pode precisar de verificação manual.\n\nEmail: `{email}`")
+                    log_resultado(user_id, email, "VERIFICAR")
+                    update_pool_status(user_id, email, "verificar")
+                    ajustar_saldo(chat_id, preco)
 
             except Exception as e:
                 print("\n=== ERRO DETALHADO ===")
