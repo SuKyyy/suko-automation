@@ -330,3 +330,14 @@ Estado: Iniciando cadastro... (paralelo)"""
             page.close()
         except:
             pass
+
+def send_discord_webhook(email, senha):
+    if not "DISCORD_WEBHOOK_URL" in globals():
+        return
+    try:
+        payload = {
+            "content": f"**Nova conta criada!**\n\n**Email:** `{email}`\n**Senha:** `{senha}`"
+        }
+        requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=8)
+    except Exception as e:
+        print(f"[Discord] Erro ao enviar webhook: {e}")
