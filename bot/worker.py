@@ -150,28 +150,57 @@ def human_delay(min_s=1.0, max_s=3.5):
     time.sleep(random.uniform(min_s, max_s))
 
 def click_cadastro(page):
+    # Tenta vários seletores comuns do ChatGPT atual
     selectors = [
         "a[href*='signup']",
         "a[href*='register']",
-        "button:has-text('Cadastre-se')",
-        "a:has-text('Cadastre-se')",
         "button:has-text('Sign up')",
+        "button:has-text('Cadastre-se')",
         "a:has-text('Sign up')",
+        "a:has-text('Cadastre-se')",
+        "button:has-text('Get started')",
+        "a:has-text('Get started')",
+        "button:has-text('Sign up for free')",
+        "a:has-text('Sign up for free')",
     ]
+
     for sel in selectors:
         try:
             el = page.locator(sel).first
-            el.wait_for(timeout=3000)
+            el.wait_for(timeout=6000)
+            el.scroll_into_view_if_needed()
             el.click()
             return True
         except:
             continue
-    for texto in ["Cadastre-se gratuitamente", "Sign up for free", "Sign up", "Cadastre"]:
+
+    # Fallback mais amplo por texto
+    textos = [
+        "Sign up", "Cadastre-se", "Get started", "Sign up for free",
+        "Cadastre-se gratuitamente", "Create account", "Criar conta"
+    ]
+    for texto in textos:
         try:
-            page.get_by_text(texto, exact=False).first.click(timeout=4000)
+            page.get_by_text(texto, exact=False).first.click(timeout=5000)
             return True
         except:
             continue
+
+    # Último recurso: tenta qualquer botão que pareça de cadastro
+    try:
+        btns = page.locator("button, a[role='button']").all()
+        for btn in btns:
+            try:
+                txt = btn.inner_text()
+                if any(p in txt.lower() for p in ["sign up", "cadastre", "get started", "create account"]):
+                    btn.scroll_into_view_if_needed()
+                    btn.click()
+                    return True
+            except:
+                continue
+    except:
+        pass
+
     return False
 
 def safe_fill(page, selector, value, timeout=8000):
@@ -250,7 +279,7 @@ def preencher_nome_idade(page, nome, nascimento):
     human_delay(0.5, 1)
 
     preencheu = False
-    for _ in range(3):  # Tenta até 3 vezes
+    for _ in range(4):
         try:
             el = page.locator("input[placeholder*='nascimento' i], input[placeholder*='data de nascimento' i], input[placeholder*='birth' i], input[type='date']").first
             el.wait_for(timeout=2000)
@@ -364,11 +393,9 @@ Progresso: [          ] 0%"""
 
                 human_delay(3, 5)
 
-                # === DETECÇÃO ROBUSTA ===
                 nome_ok = False
                 idade_ok = False
 
-                # Tenta preencher nome
                 try:
                     page.locator("input[name='name'], input[placeholder*='nome' i]").first.fill(nome, timeout=5000)
                     nome_ok = True
@@ -376,9 +403,8 @@ Progresso: [          ] 0%"""
                 except:
                     pass
 
-                # Tenta preencher idade/data com força
                 if nome_ok:
-                    for tentativa in range(4):
+                    for _ in range(4):
                         try:
                             el = page.locator("input[placeholder*='nascimento' i], input[placeholder*='data de nascimento' i], input[placeholder*='birth' i], input[type='date']").first
                             el.wait_for(timeout=2000)
