@@ -244,39 +244,43 @@ def wait_for_code(chat_id, job_id, timeout=120):
     return None
 
 def preencher_nome_idade(page, nome, nascimento):
+    # Nome completo
     for sel in ["input[name='name']", "input[placeholder*='nome' i]", "input[placeholder*='name' i]", "input[type='text']"]:
         if safe_fill(page, sel, nome): break
     human_delay(0.5, 1)
 
-    preencheu = False
+    # Idade / Data de nascimento
+    preencheu_idade = False
+
+    # Tenta preencher como data de nascimento (DD/MM/YYYY)
     try:
-        el = page.locator("input[placeholder*='nascimento' i], input[placeholder*='data' i], input[type='date']").first
-        el.wait_for(timeout=2000)
+        el = page.locator("input[placeholder*='nascimento' i], input[placeholder*='data de nascimento' i], input[placeholder*='birth' i], input[type='date']").first
+        el.wait_for(timeout=2500)
         el.fill(nascimento)
-        preencheu = True
+        preencheu_idade = True
     except:
         pass
 
-    if not preencheu:
+    if not preencheu_idade:
         try:
             el = page.locator("input[type='date']").first
-            el.wait_for(timeout=1500)
+            el.wait_for(timeout=2000)
             partes = nascimento.split("/")
             if len(partes) == 3:
                 data_iso = f"{partes[2]}-{partes[1]}-{partes[0]}"
                 el.fill(data_iso)
-            preencheu = True
+            preencheu_idade = True
         except:
             pass
 
-    if not preencheu:
+    if not preencheu_idade:
         idade = calcular_idade(nascimento)
         for sel in ["input[type='number']", "input[placeholder*='idade' i]", "input[placeholder*='age' i]", "input[name*='age' i]"]:
             if safe_fill(page, sel, idade):
-                preencheu = True
+                preencheu_idade = True
                 break
 
-    if not preencheu:
+    if not preencheu_idade:
         try:
             inputs = page.locator("input[type='text'], input[type='number']").all()
             if len(inputs) >= 2:
@@ -359,33 +363,34 @@ Progresso: [          ] 0%"""
 
                 human_delay(3, 5)
 
-                # === NOVA ABORDAGEM: TENTA PREENCHER NOME + IDADE DIRETO ===
-                # Se conseguir, significa que pulou o código
-                nome_preenchido = False
-                idade_preenchida = False
+                # === LÓGICA DE DETECÇÃO MELHORADA ===
+                # Tenta preencher nome + idade logo após a senha.
+                # Se conseguir os dois, pulou o código.
+                nome_ok = False
+                idade_ok = False
 
                 try:
-                    page.locator("input[name='name'], input[placeholder*='nome' i]").first.fill(nome, timeout=4000)
-                    nome_preenchido = True
+                    page.locator("input[name='name'], input[placeholder*='nome' i]").first.fill(nome, timeout=4500)
+                    nome_ok = True
                     human_delay(0.5, 1)
                 except:
                     pass
 
-                if nome_preenchido:
+                if nome_ok:
                     try:
-                        el = page.locator("input[placeholder*='nascimento' i], input[placeholder*='data' i], input[type='date'], input[placeholder*='idade' i]").first
-                        el.fill(nascimento, timeout=3000)
-                        idade_preenchida = True
+                        el = page.locator("input[placeholder*='nascimento' i], input[placeholder*='data de nascimento' i], input[placeholder*='birth' i], input[type='date']").first
+                        el.fill(nascimento, timeout=3500)
+                        idade_ok = True
                     except:
                         try:
                             idade = calcular_idade(nascimento)
-                            page.locator("input[type='number'], input[placeholder*='idade' i]").first.fill(idade, timeout=2500)
-                            idade_preenchida = True
+                            page.locator("input[type='number'], input[placeholder*='idade' i]").first.fill(idade, timeout=3000)
+                            idade_ok = True
                         except:
                             pass
 
-                if nome_preenchido and idade_preenchida:
-                    # Conseguiu preencher nome + idade = pulou código
+                if nome_ok and idade_ok:
+                    # Pulou o código com sucesso
                     edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Pulou código \u2705\nProgresso: [\u2588\u2588\u2588\u2588\u2588\u2588    ] 70%")
                     click_concluir(page)
                     human_delay(2, 4)
@@ -401,13 +406,13 @@ Copie e cole: https://tempmailsuko.shop/en/infinity""")
                         log_resultado(user_id, email, "SUCESSO")
                         update_pool_status(user_id, email, "done")
                     except:
-                        edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\n\u26a0️ Pode precisar de verifica\u00e7\u00e3o manual.\n\nEmail: `{email}`")
+                        edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\n\u26a0️ Pode precisar de verificação manual.\n\nEmail: `{email}`")
                         log_resultado(user_id, email, "VERIFICAR")
                         update_pool_status(user_id, email, "verificar")
                         ajustar_saldo(chat_id, preco)
 
                 else:
-                    # Precisa de código
+                    # Precisa pedir código
                     edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Aguardando código...\nProgresso: [\u2588\u2588\u2588\u2588    ] 50%")
 
                     send_message(chat_id, f"{email}\nManda o código de 6 dígitos:")
@@ -415,7 +420,7 @@ Copie e cole: https://tempmailsuko.shop/en/infinity""")
                     code = wait_for_code(chat_id, job_id, timeout=120)
 
                     if not code:
-                        edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\n\u274c Timeout. Reembolsando...")
+                        edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\n\u274c Timeout (2 min). Reembolsando...")
                         ajustar_saldo(chat_id, preco)
                         log_resultado(user_id, email, "TIMEOUT")
                         update_pool_status(user_id, email, "timeout")
@@ -441,7 +446,7 @@ Copie e cole: https://tempmailsuko.shop/en/infinity""")
 
                     edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Preenchendo nome e idade...\nProgresso: [\u2588\u2588\u2588\u2588\u2588\u2588    ] 80%")
 
-                    # Tenta preencher nome + idade novamente
+                    # Tenta preencher nome + idade de novo
                     try:
                         page.locator("input[name='name'], input[placeholder*='nome' i]").first.fill(nome, timeout=4000)
                         human_delay(0.5, 1)
@@ -468,7 +473,7 @@ Copie e cole: https://tempmailsuko.shop/en/infinity""")
                         log_resultado(user_id, email, "SUCESSO")
                         update_pool_status(user_id, email, "done")
                     except:
-                        edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\n\u26a0️ Pode precisar de verifica\u00e7\u00e3o manual.\n\nEmail: `{email}`")
+                        edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\n\u26a0️ Pode precisar de verificação manual.\n\nEmail: `{email}`")
                         log_resultado(user_id, email, "VERIFICAR")
                         update_pool_status(user_id, email, "verificar")
                         ajustar_saldo(chat_id, preco)
@@ -518,7 +523,7 @@ def main():
     finally:
         print("\n[Shutdown] Encerrando worker de forma segura...")
         cancel_all_running_jobs()
-        print("Worker finalizado com seguran\u00e7a.")
+        print("Worker finalizado com segurança.")
         sys.exit(0)
 
 if __name__ == "__main__":
