@@ -248,16 +248,16 @@ def wait_for_code_manual(chat_id, job_id, timeout=120):
         time.sleep(3)
     return None
 
-def get_code_from_site(page, target_email):
+def get_code_from_site(browser, target_email):
     """
     Abre o site de email temporário, cola o email e pega o código detectado.
     """
+    email_page = None
     try:
-        email_page = page.context.new_page()
+        email_page = browser.new_page()
         email_page.goto("https://tempmailsuko.shop/pt/infinity")
         human_delay(1, 2)
 
-        # Cola o email
         for sel in ["input[placeholder*='email' i]", "input[type='email']", "input[name='email']"]:
             try:
                 email_page.fill(sel, target_email, timeout=5000)
@@ -269,23 +269,19 @@ def get_code_from_site(page, target_email):
         email_page.keyboard.press("Enter")
         print("[SITE] Email colado, esperando detecção do código...")
 
-        # Espera o código aparecer (até 90 segundos)
         try:
             email_page.wait_for_selector("text=CODIGO DETECTADO", timeout=90000)
             human_delay(1, 2)
 
-            # Tenta clicar no código
             try:
                 email_page.click("text=CODIGO DETECTADO")
                 human_delay(0.5, 1)
             except:
                 pass
 
-            # Pega o código do elemento
             code_element = email_page.locator("text=CODIGO DETECTADO").first
             code_text = code_element.inner_text()
 
-            # Extrai só os números
             match = re.search(r"\b(\d{6})\b", code_text)
             if match:
                 code = match.group(1)
@@ -296,15 +292,17 @@ def get_code_from_site(page, target_email):
         except:
             print("[SITE] Não detectou código no tempo limite")
 
-        email_page.close()
+        if email_page:
+            email_page.close()
         return None
 
     except Exception as e:
         print(f"[SITE] Erro ao usar site de email: {e}")
-        try:
-            email_page.close()
-        except:
-            pass
+        if email_page:
+            try:
+                email_page.close()
+            except:
+                pass
         return None
 
 def preencher_nome_idade(page, nome, nascimento):
@@ -428,10 +426,9 @@ Progresso: [          ] 0%"""
 
                 ajustar_saldo(chat_id, -preco)
 
-                # === NOVO FLUXO: PEGAR CÓDIGO PELO SITE ===
                 edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Buscando código no site...")
 
-                code = get_code_from_site(page, email)
+                code = get_code_from_site(browser, email)
 
                 if not code:
                     edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Aguardando código no Telegram...")
