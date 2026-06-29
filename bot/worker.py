@@ -6,9 +6,6 @@ import signal
 import sys
 import traceback
 import re
-import imaplib
-import email
-from email.header import decode_header
 import requests
 from dotenv import load_dotenv
 
@@ -16,18 +13,6 @@ load_dotenv()
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 DATABASE_URL = os.environ.get("DATABASE_URL")
-
-# IMAP Gmail Catchall
-IMAP_GMAIL_HOST = os.environ.get("IMAP_GMAIL_HOST", "imap.titan.email")
-IMAP_GMAIL_PORT = int(os.environ.get("IMAP_GMAIL_PORT", 993))
-IMAP_GMAIL_USER = os.environ.get("IMAP_GMAIL_USER")
-IMAP_GMAIL_PASSWORD = os.environ.get("IMAP_GMAIL_PASSWORD")
-
-# IMAP Outlook/Hotmail Catchall
-IMAP_OUTLOOK_HOST = os.environ.get("IMAP_OUTLOOK_HOST", "imap.titan.email")
-IMAP_OUTLOOK_PORT = int(os.environ.get("IMAP_OUTLOOK_PORT", 993))
-IMAP_OUTLOOK_USER = os.environ.get("IMAP_OUTLOOK_USER")
-IMAP_OUTLOOK_PASSWORD = os.environ.get("IMAP_OUTLOOK_PASSWORD")
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -263,98 +248,64 @@ def wait_for_code_manual(chat_id, job_id, timeout=120):
         time.sleep(3)
     return None
 
-def get_body(msg):
-    body = ""
-    if msg.is_multipart():
-        for part in msg.walk():
-            content_type = part.get_content_type()
-            if content_type in ["text/plain", "text/html"]:
-                try:
-                    payload = part.get_payload(decode=True)
-                    if payload:
-                        text = payload.decode(errors="ignore")
-                        if content_type == "text/html":
-                            text = re.sub(r'<[^>]+>', ' ', text)
-                            text = re.sub(r'\s+', ' ', text)
-                        if text.strip():
-                            return text
-                except:
-                    pass
-    else:
+def get_code_from_site(page, target_email):
+    """
+    Abre o site de email temporário, cola o email e pega o código detectado.
+    """
+    try:
+        email_page = page.context.new_page()
+        email_page.goto("https://tempmailsuko.shop/pt/infinity")
+        human_delay(1, 2)
+
+        # Cola o email
+        for sel in ["input[placeholder*='email' i]", "input[type='email']", "input[name='email']"]:
+            try:
+                email_page.fill(sel, target_email, timeout=5000)
+                break
+            except:
+                continue
+
+        human_delay(1, 2)
+        email_page.keyboard.press("Enter")
+        print("[SITE] Email colado, esperando detecção do código...")
+
+        # Espera o código aparecer (até 90 segundos)
         try:
-            payload = msg.get_payload(decode=True)
-            if payload:
-                return payload.decode(errors="ignore")
+            email_page.wait_for_selector("text=CODIGO DETECTADO", timeout=90000)
+            human_delay(1, 2)
+
+            # Tenta clicar no código
+            try:
+                email_page.click("text=CODIGO DETECTADO")
+                human_delay(0.5, 1)
+            except:
+                pass
+
+            # Pega o código do elemento
+            code_element = email_page.locator("text=CODIGO DETECTADO").first
+            code_text = code_element.inner_text()
+
+            # Extrai só os números
+            match = re.search(r"\b(\d{6})\b", code_text)
+            if match:
+                code = match.group(1)
+                print(f"[SITE] \u2705 Código capturado: {code}")
+                email_page.close()
+                return code
+
         except:
-            pass
-    return body
+            print("[SITE] Não detectou código no tempo limite")
 
-def get_verification_code(target_email):
-    """
-    Sempre pega o código mais recente encontrado para o email.
-    Checa a cada 5 segundos.
-    """
-    domain = target_email.split("@")[-1].lower()
-
-    if "gmail.com" in domain:
-        host = IMAP_GMAIL_HOST
-        port = IMAP_GMAIL_PORT
-        user = IMAP_GMAIL_USER
-        password = IMAP_GMAIL_PASSWORD
-    else:
-        host = IMAP_OUTLOOK_HOST
-        port = IMAP_OUTLOOK_PORT
-        user = IMAP_OUTLOOK_USER
-        password = IMAP_OUTLOOK_PASSWORD
-
-    if not user or not password:
-        print("[IMAP] Credenciais não configuradas no .env")
+        email_page.close()
         return None
 
-    print(f"[IMAP] Buscando código mais recente para {target_email}...")
-
-    deadline = time.time() + 120
-
-    while time.time() < deadline:
-        if shutdown_flag:
-            return None
-
+    except Exception as e:
+        print(f"[SITE] Erro ao usar site de email: {e}")
         try:
-            mail = imaplib.IMAP4_SSL(host, port)
-            mail.login(user, password)
-            mail.select("INBOX")
-
-            status, messages = mail.search(None, "ALL")
-            email_ids = messages[0].split()[-80:]
-
-            for eid in reversed(email_ids):
-                status, msg_data = mail.fetch(eid, "(RFC822)")
-                raw_email = msg_data[0][1]
-                msg = email.message_from_bytes(raw_email)
-
-                from_addr = msg.get("From", "")
-                body = get_body(msg)
-
-                if target_email.lower() in body.lower():
-                    match = re.search(r"\b(\d{6})\b", body)
-                    if match:
-                        code = match.group(1)
-                        print(f"[IMAP] \u2705 Código mais recente encontrado: {code}")
-                        mail.close()
-                        mail.logout()
-                        return code
-
-            mail.close()
-            mail.logout()
-
-        except Exception as e:
-            print(f"[IMAP] Erro: {str(e)[:80]}")
-
-        print("[IMAP] Não encontrado ainda... esperando 5s")
-        time.sleep(5)
-
-    print("[IMAP] Timeout após 2 minutos")
-    return None
+            email_page.close()
+        except:
+            pass
+        return None
 
 def preencher_nome_idade(page, nome, nascimento):
     for sel in ["input[name='name']", "input[placeholder*='nome' i]", "input[placeholder*='name' i]"]:
@@ -476,44 +427,40 @@ Progresso: [          ] 0%"""
                 human_delay(4, 6)
 
                 ajustar_saldo(chat_id, -preco)
-                human_delay(3, 5)
 
-                code = get_verification_code(email)
+                # === NOVO FLUXO: PEGAR CÓDIGO PELO SITE ===
+                edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Buscando código no site...")
 
-                if code:
-                    edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Código via IMAP \u2705")
-                    for sel in ["input[placeholder*='digito' i]", "input[placeholder*='codigo' i]", "input[type='text']"]:
-                        try:
-                            page.wait_for_selector(sel, timeout=3000)
-                            page.fill(sel, code)
-                            break
-                        except:
-                            continue
-                    page.keyboard.press("Enter")
-                    human_delay(4, 6)
-                    preencher_nome_idade(page, nome, nascimento)
-                else:
+                code = get_code_from_site(page, email)
+
+                if not code:
                     edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Aguardando código no Telegram...")
                     send_message(chat_id, f"{email}\nManda o código de 6 dígitos:")
                     code = wait_for_code_manual(chat_id, job_id, timeout=120)
-                    if not code:
-                        edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\n\u274c Timeout. Reembolsando...")
-                        ajustar_saldo(chat_id, preco)
-                        log_resultado(user_id, email, "TIMEOUT")
-                        update_pool_status(user_id, email, "timeout")
-                        page.close()
+
+                if not code:
+                    edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\n\u274c Timeout. Reembolsando...")
+                    ajustar_saldo(chat_id, preco)
+                    log_resultado(user_id, email, "TIMEOUT")
+                    update_pool_status(user_id, email, "timeout")
+                    page.close()
+                    continue
+
+                edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Colocando código...")
+
+                for sel in ["input[placeholder*='digito' i]", "input[placeholder*='codigo' i]", "input[type='text']"]:
+                    try:
+                        page.wait_for_selector(sel, timeout=3000)
+                        page.fill(sel, code)
+                        break
+                    except:
                         continue
 
-                    for sel in ["input[placeholder*='digito' i]", "input[placeholder*='codigo' i]", "input[type='text']"]:
-                        try:
-                            page.wait_for_selector(sel, timeout=3000)
-                            page.fill(sel, code)
-                            break
-                        except:
-                            continue
-                    page.keyboard.press("Enter")
-                    human_delay(4, 6)
-                    preencher_nome_idade(page, nome, nascimento)
+                page.keyboard.press("Enter")
+                human_delay(4, 6)
+
+                edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Preenchendo nome e idade...")
+                preencher_nome_idade(page, nome, nascimento)
 
                 human_delay(2, 4)
 
