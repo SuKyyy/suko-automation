@@ -1,3 +1,7 @@
+from browser_automation import (
+    ... (as funções que já tem)
+    send_discord_webhook
+)
 import os
 import time
 import random
