@@ -65,10 +65,10 @@ def menu_admin():
         [InlineKeyboardButton("💰 Dar Saldo", callback_data="adm_dar_saldo"),
          InlineKeyboardButton("➖ Tirar Saldo", callback_data="adm_tirar_saldo")],
         [InlineKeyboardButton("🗑️ Limpar Pool", callback_data="adm_clear_pool")],
-        [InlineKeyboardButton("👤 Menu Usuário", callback_data="menu_user")],   # ← Botão novo
+        [InlineKeyboardButton("👤 Menu Usuário", callback_data="menu_user")],
     ]
     return InlineKeyboardMarkup(keyboard)
-    
+
 def menu_usuario():
     keyboard = [
         [InlineKeyboardButton("📋 Pool", callback_data="pool")],
@@ -109,8 +109,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    elif data == "menu_user":
-    await query.edit_message_text("🤖 *Menu*", parse_mode="Markdown", reply_markup=menu_usuario())
     query = update.callback_query
     await query.answer()
     chat_id = query.message.chat_id
@@ -120,16 +118,188 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("Usa /start primeiro.")
         return
 
-    # Aqui vai todo o código do button_handler que você tinha antes
-    # (copie do seu arquivo anterior se tiver)
     if data == "adm_menu":
         await query.edit_message_text("👑 *Admin Panel*", parse_mode="Markdown", reply_markup=menu_admin())
-    # ... (adicione o resto do seu button_handler aqui)
 
     elif data == "menu_user":
         await query.edit_message_text("🤖 *Menu*", parse_mode="Markdown", reply_markup=menu_usuario())
 
-    # Continue com todos os elifs que você tinha...
+    elif data == "adm_usuarios" and is_admin(chat_id):
+        users = get_all_users()
+        texto = f"👥 *Usuários ({len(users)}):*\n\n"
+        for u in users:
+            pool = get_pool(u['chat_id'])
+            emoji = "👑" if u['is_admin'] else "👤"
+            texto += f"{emoji} `{u['chat_id']}` — {u['nome'] or 'sem nome'}\n"
+            texto += f"   💰 R$ {u['saldo']:.2f} | Pool: {len(pool)}\n"
+        keyboard = [
+            [InlineKeyboardButton("💰 Dar Saldo", callback_data="adm_dar_saldo"),
+             InlineKeyboardButton("➖ Tirar Saldo", callback_data="adm_tirar_saldo")],
+            [InlineKeyboardButton("🗑️ Cancelar Jobs de Usuário", callback_data="adm_cancel_user_jobs")],
+            [InlineKeyboardButton("◀️ Admin", callback_data="adm_menu")],
+        ]
+        await query.edit_message_text(texto, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+
+    elif data == "adm_pool" and is_admin(chat_id):
+        pool = get_pool_all_status()
+        if not pool:
+            texto = "🌐 Pool global vazia."
+        else:
+            texto = f"🌐 *Pool Global ({len(pool)} recentes):*\n\n"
+            for p in pool:
+                emoji = "✅" if p['status'] == 'done' else ("⏳" if p['status'] == 'pending' else "❌")
+                texto += f"{emoji} `{p['email']}` ({p['user_id']})\n"
+        await query.edit_message_text(texto, parse_mode="Markdown", reply_markup=menu_voltar_admin())
+
+    elif data == "adm_jobs" and is_admin(chat_id):
+        jobs = get_all_active_jobs()
+        if not jobs:
+            texto = "⚙️ Nenhum job ativo."
+        else:
+            texto = f"⚙️ *Jobs Ativos ({len(jobs)}):*\n\n"
+            for j in jobs:
+                texto += f"• ID {j['id']} | user `{j['user_id']}` | {j['status']}\n"
+        keyboard = [
+            [InlineKeyboardButton("🛑 Cancelar Todos Jobs", callback_data="adm_cancel_all_jobs")],
+            [InlineKeyboardButton("◀️ Admin", callback_data="adm_menu")],
+        ]
+        await query.edit_message_text(texto, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+
+    elif data == "adm_cancel_all_jobs" and is_admin(chat_id):
+        cancel_jobs()
+        await query.edit_message_text("🛑 Todos os jobs cancelados.", reply_markup=menu_voltar_admin())
+
+    elif data == "adm_resultados" and is_admin(chat_id):
+        rows = get_resultados()
+        if not rows:
+            texto = "📈 Nenhum resultado ainda."
+        else:
+            texto = "📈 *Ultimos Resultados (global):*\n\n"
+            for r in rows:
+                emoji = "✅" if r['status'] == 'SUCESSO' else ("⚠️" if r['status'] == 'VERIFICAR' else "❌")
+                texto += f"{emoji} `{r['email']}` ({r['user_id']}) → {r['status']}\n"
+        await query.edit_message_text(texto, parse_mode="Markdown", reply_markup=menu_voltar_admin())
+
+    elif data == "adm_preco" and is_admin(chat_id):
+        preco = get_preco()
+        context.user_data['aguardando'] = 'adm_preco'
+        await query.edit_message_text(
+            f"💰 *Preço atual:* R$ {preco:.2f}/conta\n\nManda o novo preço (ex: `2.50`):",
+            parse_mode="Markdown"
+        )
+
+    elif data == "adm_dar_saldo" and is_admin(chat_id):
+        context.user_data['aguardando'] = 'adm_dar_saldo'
+        await query.edit_message_text(
+            "💰 *Dar Saldo*\n\nManda no formato:\n`chat_id valor`\n\nEx: `7658392821 50.00`",
+            parse_mode="Markdown"
+        )
+
+    elif data == "adm_tirar_saldo" and is_admin(chat_id):
+        context.user_data['aguardando'] = 'adm_tirar_saldo'
+        await query.edit_message_text(
+            "➖ *Tirar Saldo*\n\nManda no formato:\n`chat_id valor`\n\nEx: `7658392821 10.00`",
+            parse_mode="Markdown"
+        )
+
+    elif data == "adm_cancel_user_jobs" and is_admin(chat_id):
+        context.user_data['aguardando'] = 'adm_cancel_user_jobs'
+        await query.edit_message_text(
+            "🛑 *Cancelar Jobs de Usuário*\n\nManda o `chat_id` do usuário:",
+            parse_mode="Markdown"
+        )
+
+    elif data == "perfil":
+        preco = get_preco()
+        pool = get_pool(chat_id)
+        resultados = get_resultados(chat_id)
+        sucesso = sum(1 for r in resultados if r['status'] == 'SUCESSO')
+        await query.edit_message_text(
+            f"👤 *Perfil*\n\n"
+            f"ID: `{chat_id}`\n"
+            f"Nome: {user['nome'] or '-'}\n"
+            f"💰 Saldo: R$ {user['saldo']:.2f}\n"
+            f"💲 Preço/conta: R$ {preco:.2f}\n"
+            f"📋 Pool pendente: {len(pool)}\n"
+            f"✅ Contas criadas: {sucesso}",
+            parse_mode="Markdown",
+            reply_markup=menu_voltar_user()
+        )
+
+    elif data == "pool":
+        pool = get_pool(chat_id)
+        if not pool:
+            texto = "📋 Pool vazia.\n\nManda: `email:senha:Nome`"
+        else:
+            texto = f"📋 *Pool ({len(pool)} pendentes):*\n\n"
+            for i, p in enumerate(pool, 1):
+                texto += f"{i}. `{p['email']}`\n"
+        await query.edit_message_text(texto, parse_mode="Markdown", reply_markup=menu_usuario())
+
+    elif data == "add":
+        await query.edit_message_text(
+            "➕ *Adicionar conta*\n\nFormato:\n`email:senha:Nome Completo`\n\nVárias de uma vez, uma por linha.",
+            parse_mode="Markdown",
+            reply_markup=menu_voltar_user()
+        )
+
+    elif data == "clear":
+        clear_pool(chat_id)
+        await query.edit_message_text("🗑️ Pool limpa!", reply_markup=menu_usuario())
+
+    elif data == "status":
+        pool = get_pool(chat_id)
+        job = get_active_job(chat_id)
+        waiting = is_waiting_code(chat_id)
+        preco = get_preco()
+        custo_estimado = len(pool) * preco
+        await query.edit_message_text(
+            f"📊 *Status*\n\n"
+            f"Pool pendente: {len(pool)}\n"
+            f"Custo estimado: R$ {custo_estimado:.2f}\n"
+            f"Job ativo: {'✅' if job else '❌'}\n"
+            f"Aguardando código: {'✅' if waiting else '❌'}\n"
+            f"💰 Saldo: R$ {user['saldo']:.2f}",
+            parse_mode="Markdown",
+            reply_markup=menu_usuario()
+        )
+
+    elif data == "start_job":
+        pool = get_pool(chat_id)
+        if not pool:
+            await query.edit_message_text("⚠️ Pool vazia!", reply_markup=menu_usuario())
+            return
+        preco = get_preco()
+        custo = len(pool) * preco
+        if user['saldo'] < preco:
+            await query.edit_message_text(
+                f"❌ Saldo insuficiente.\n💰 Saldo: R$ {user['saldo']:.2f}\n💲 Mínimo: R$ {preco:.2f}",
+                reply_markup=menu_usuario()
+            )
+            return
+        if get_active_job(chat_id):
+            await query.edit_message_text("⚠️ Já tem um job rodando!", reply_markup=menu_usuario())
+            return
+        create_job(chat_id, chat_id)
+        await query.edit_message_text(
+            f"🚀 *Job criado!*\n\n"
+            f"Contas na fila: {len(pool)}\n"
+            f"Custo máximo: R$ {custo:.2f}\n"
+            f"(Erros são reembolsados automaticamente)",
+            parse_mode="Markdown",
+            reply_markup=menu_usuario()
+        )
+
+    elif data == "resultados":
+        rows = get_resultados(chat_id)
+        if not rows:
+            texto = "📈 Nenhum resultado ainda."
+        else:
+            texto = "📈 *Seus Resultados:*\n\n"
+            for r in rows:
+                emoji = "✅" if r['status'] == 'SUCESSO' else ("⚠️" if r['status'] == 'VERIFICAR' else "❌")
+                texto += f"{emoji} `{r['email']}` → {r['status']}\n"
+        await query.edit_message_text(texto, parse_mode="Markdown", reply_markup=menu_usuario())
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -140,8 +310,83 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     aguardando = context.user_data.get('aguardando')
 
-    # Aqui vai todo o código do handle_message que você tinha antes
-    # (copie do seu arquivo anterior)
+    if aguardando == 'adm_preco' and is_admin(chat_id):
+        try:
+            preco = float(text.replace(',', '.'))
+            set_preco(preco)
+            context.user_data['aguardando'] = None
+            await update.message.reply_text(f"✅ Preço atualizado para R$ {preco:.2f}/conta", reply_markup=menu_admin())
+        except:
+            await update.message.reply_text("❌ Formato inválido. Ex: `2.50`", parse_mode="Markdown")
+        return
+
+    if aguardando == 'adm_dar_saldo' and is_admin(chat_id):
+        try:
+            partes = text.split()
+            target_id, valor = int(partes[0]), float(partes[1])
+            novo = ajustar_saldo(target_id, valor)
+            context.user_data['aguardando'] = None
+            await update.message.reply_text(f"✅ +R$ {valor:.2f} para `{target_id}`. Novo saldo: R$ {novo:.2f}", parse_mode="Markdown", reply_markup=menu_admin())
+        except:
+            await update.message.reply_text("❌ Formato: `chat_id valor`", parse_mode="Markdown")
+        return
+
+    if aguardando == 'adm_tirar_saldo' and is_admin(chat_id):
+        try:
+            partes = text.split()
+            target_id, valor = int(partes[0]), float(partes[1])
+            novo = ajustar_saldo(target_id, -valor)
+            context.user_data['aguardando'] = None
+            await update.message.reply_text(f"✅ -R$ {valor:.2f} de `{target_id}`. Novo saldo: R$ {novo:.2f}", parse_mode="Markdown", reply_markup=menu_admin())
+        except:
+            await update.message.reply_text("❌ Formato: `chat_id valor`", parse_mode="Markdown")
+        return
+
+    if aguardando == 'adm_cancel_user_jobs' and is_admin(chat_id):
+        try:
+            target_id = int(text.strip())
+            cancel_jobs(target_id)
+            context.user_data['aguardando'] = None
+            await update.message.reply_text(f"🛑 Jobs de `{target_id}` cancelados.", parse_mode="Markdown", reply_markup=menu_admin())
+        except:
+            await update.message.reply_text("❌ Manda só o chat_id.")
+        return
+
+    if is_waiting_code(chat_id) and "@" not in text and text.strip().isdigit():
+        save_codigo(chat_id, text.strip())
+        await update.message.reply_text("✅ Código salvo! O worker vai pegar automaticamente.")
+        return
+
+    tem_fragmento = chat_id in fragmento_buffer
+    if "@" in text or tem_fragmento:
+        if tem_fragmento:
+            texto_completo = fragmento_buffer.pop(chat_id) + text
+        else:
+            texto_completo = text
+
+        adicionadas, fragmento = processar_texto(chat_id, texto_completo)
+
+        if fragmento:
+            fragmento_buffer[chat_id] = fragmento
+
+        if adicionadas:
+            resposta = f"✅ {len(adicionadas)} conta(s) adicionada(s):\n" + "\n".join(adicionadas)
+            await update.message.reply_text(
+                resposta,
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("📋 Ver Pool", callback_data="pool"),
+                    InlineKeyboardButton("🚀 Iniciar Job", callback_data="start_job")
+                ]])
+            )
+            return
+        elif fragmento:
+            return
+        else:
+            await update.message.reply_text(
+                f"❌ Formato inválido.\nUsa: `email:senha:Nome Completo`",
+                parse_mode="Markdown"
+            )
+            return
 
     if is_admin(chat_id):
         await update.message.reply_text("👑 Admin Panel:", reply_markup=menu_admin())
