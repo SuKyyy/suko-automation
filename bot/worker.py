@@ -4,6 +4,7 @@ import random
 import datetime
 import signal
 import sys
+import traceback
 import requests
 from dotenv import load_dotenv
 
@@ -250,18 +251,18 @@ def preencher_nome_idade(page, nome, nascimento):
     human_delay(0.5, 1)
 
     # Idade / Data de nascimento
-    preencheu_idade = False
+    preencheu = False
 
-    # Tenta preencher como data de nascimento (DD/MM/YYYY)
+    # Tenta primeiro campos de data de nascimento
     try:
         el = page.locator("input[placeholder*='nascimento' i], input[placeholder*='data de nascimento' i], input[placeholder*='birth' i], input[type='date']").first
         el.wait_for(timeout=2500)
         el.fill(nascimento)
-        preencheu_idade = True
+        preencheu = True
     except:
         pass
 
-    if not preencheu_idade:
+    if not preencheu:
         try:
             el = page.locator("input[type='date']").first
             el.wait_for(timeout=2000)
@@ -269,18 +270,18 @@ def preencher_nome_idade(page, nome, nascimento):
             if len(partes) == 3:
                 data_iso = f"{partes[2]}-{partes[1]}-{partes[0]}"
                 el.fill(data_iso)
-            preencheu_idade = True
+            preencheu = True
         except:
             pass
 
-    if not preencheu_idade:
+    if not preencheu:
         idade = calcular_idade(nascimento)
         for sel in ["input[type='number']", "input[placeholder*='idade' i]", "input[placeholder*='age' i]", "input[name*='age' i]"]:
             if safe_fill(page, sel, idade):
-                preencheu_idade = True
+                preencheu = True
                 break
 
-    if not preencheu_idade:
+    if not preencheu:
         try:
             inputs = page.locator("input[type='text'], input[type='number']").all()
             if len(inputs) >= 2:
@@ -336,7 +337,7 @@ Progresso: [          ] 0%"""
                 human_delay(2, 4)
 
                 if not click_cadastro(page):
-                    edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\n\u274c Falha ao encontrar bot\u00e3o de cadastro.")
+                    edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\n\u274c Falha ao encontrar botão de cadastro.")
                     log_resultado(user_id, email, "ERRO_CADASTRO")
                     update_pool_status(user_id, email, "erro")
                     page.close()
@@ -363,9 +364,7 @@ Progresso: [          ] 0%"""
 
                 human_delay(3, 5)
 
-                # === LÓGICA DE DETECÇÃO MELHORADA ===
-                # Tenta preencher nome + idade logo após a senha.
-                # Se conseguir os dois, pulou o código.
+                # === DETECÇÃO POR TENTATIVA DE PREENCHIMENTO ===
                 nome_ok = False
                 idade_ok = False
 
@@ -390,7 +389,6 @@ Progresso: [          ] 0%"""
                             pass
 
                 if nome_ok and idade_ok:
-                    # Pulou o código com sucesso
                     edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Pulou código \u2705\nProgresso: [\u2588\u2588\u2588\u2588\u2588\u2588    ] 70%")
                     click_concluir(page)
                     human_delay(2, 4)
@@ -412,7 +410,6 @@ Copie e cole: https://tempmailsuko.shop/en/infinity""")
                         ajustar_saldo(chat_id, preco)
 
                 else:
-                    # Precisa pedir código
                     edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Aguardando código...\nProgresso: [\u2588\u2588\u2588\u2588    ] 50%")
 
                     send_message(chat_id, f"{email}\nManda o código de 6 dígitos:")
@@ -446,7 +443,6 @@ Copie e cole: https://tempmailsuko.shop/en/infinity""")
 
                     edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\nEstado: Preenchendo nome e idade...\nProgresso: [\u2588\u2588\u2588\u2588\u2588\u2588    ] 80%")
 
-                    # Tenta preencher nome + idade de novo
                     try:
                         page.locator("input[name='name'], input[placeholder*='nome' i]").first.fill(nome, timeout=4000)
                         human_delay(0.5, 1)
@@ -479,7 +475,9 @@ Copie e cole: https://tempmailsuko.shop/en/infinity""")
                         ajustar_saldo(chat_id, preco)
 
             except Exception as e:
-                edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\n\u274c Erro: {str(e)[:80]}")
+                print("\n=== ERRO DETALHADO ===")
+                traceback.print_exc()
+                edit_message(chat_id, msg_id, f"\ud83d\udccc {email}\n\n\u274c Erro: {str(e)[:100]}")
                 log_resultado(user_id, email, "ERRO")
                 update_pool_status(user_id, email, "erro")
                 ajustar_saldo(chat_id, preco)
@@ -516,6 +514,7 @@ def main():
                         print("Sem jobs. Checando em 5s...", end="\r")
             except Exception as e:
                 print(f"Erro no loop: {e}")
+                traceback.print_exc()
             if not shutdown_flag:
                 time.sleep(5)
     except KeyboardInterrupt:
