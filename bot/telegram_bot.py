@@ -78,7 +78,12 @@ def menu_gpt():
 
 def menu_spotify():
     keyboard = [
-        [InlineKeyboardButton("🔧 Em breve...", callback_data="voltar_principal")],
+        [InlineKeyboardButton("📋 Pool", callback_data="spotify_pool"),
+         InlineKeyboardButton("➕ Adicionar Conta", callback_data="spotify_add")],
+        [InlineKeyboardButton("🗑️ Limpar Pool", callback_data="spotify_clear"),
+         InlineKeyboardButton("🚀 Iniciar Job", callback_data="spotify_start_job")],
+        [InlineKeyboardButton("📈 Resultados", callback_data="spotify_resultados"),
+         InlineKeyboardButton("👤 Perfil", callback_data="spotify_perfil")],
         [InlineKeyboardButton("◀️ Voltar", callback_data="voltar_principal")],
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -146,6 +151,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("🤖 *SuKo-9000*\n\nEscolha o serviço:", parse_mode="Markdown", reply_markup=menu_principal())
         return
 
+    # Menu GPT
     if data == "pool":
         pool = get_pool(chat_id)
         if not pool:
