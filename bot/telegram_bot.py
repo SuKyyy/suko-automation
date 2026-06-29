@@ -364,6 +364,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def run_bot():
     init_db()
     app = Application.builder().token(TOKEN).build()
+        await app.bot.delete_webhook(drop_pending_updates=True)
+    print("Webhook antigo removido.")
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
