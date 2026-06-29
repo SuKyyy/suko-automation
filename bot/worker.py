@@ -275,7 +275,6 @@ def get_code_from_site(browser, target_email):
 
         human_delay(2, 3)
 
-        # Clica no email mais recente
         try:
             email_page.locator("text=ChatGPT").first.click(timeout=8000)
             print("[SITE] Clicou no email")
@@ -283,24 +282,16 @@ def get_code_from_site(browser, target_email):
         except Exception as e:
             print(f"[SITE] Erro ao clicar: {e}")
 
-        # Agora procura qualquer número de 6 dígitos na página (mais robusto)
         try:
-            # Espera um pouco pro código aparecer
             human_delay(2, 4)
-
-            # Pega todo o texto da página
             page_text = email_page.content()
-
-            # Procura número de 6 dígitos
             match = re.search(r"\b(\d{6})\b", page_text)
             if match:
                 code = match.group(1)
                 print(f"[SITE] \u2705 Código encontrado na página: {code}")
                 email_page.close()
                 return code
-
             print("[SITE] Nenhum código de 6 dígitos encontrado na página")
-
         except Exception as e:
             print(f"[SITE] Erro ao extrair código: {e}")
 
@@ -318,32 +309,61 @@ def get_code_from_site(browser, target_email):
         return None
 
 def preencher_nome_idade(page, nome, nascimento):
+    # Preenche nome
     for sel in ["input[name='name']", "input[placeholder*='nome' i]", "input[placeholder*='name' i]"]:
         if safe_fill(page, sel, nome):
             break
-    human_delay(0.5, 1)
+    human_delay(0.8, 1.5)
 
-    preencheu = False
-    for _ in range(5):
-        for sel in ["input[placeholder='Idade']", "input[placeholder*='idade' i]", "input[placeholder*='age' i]", 
-                    "input[type='number']", "input[placeholder*='nascimento' i]", "input[placeholder*='data' i]", "input[type='date']"]:
-            val = nascimento if 'data' in sel.lower() or 'nasc' in sel.lower() else str(calcular_idade(nascimento))
-            if safe_fill(page, sel, val):
-                preencheu = True
+    # Verifica se o campo é de Data de nascimento (com valor pré-preenchido)
+    try:
+        if page.locator("text=Data de nascimento").count() > 0:
+            print("[IDADE] Campo de Data de nascimento detectado")
+
+            # Tenta encontrar o input de data
+            date_input = None
+            for sel in ["input[placeholder*='nasc' i]", "input[placeholder*='data' i]", "input[type='text']", "input" ]:
+                try:
+                    inp = page.locator(sel).first
+                    if inp.is_visible():
+                        date_input = inp
+                        break
+                except:
+                    continue
+
+            if date_input:
+                # Clica no campo
+                date_input.click()
+                human_delay(0.5, 1)
+
+                # Apaga os últimos 4 dígitos (o ano)
+                for _ in range(4):
+                    page.keyboard.press("Backspace")
+                    human_delay(0.1, 0.3)
+
+                # Pega o ano correto do nascimento (dd/mm/aaaa)
+                try:
+                    ano = nascimento.split("/")[2]
+                    page.keyboard.type(ano)
+                    print(f"[IDADE] Ano corrigido para: {ano}")
+                except:
+                    # Fallback: usa os últimos 4 dígitos do nascimento
+                    page.keyboard.type(nascimento[-4:])
+
+                human_delay(0.5, 1)
+    except Exception as e:
+        print(f"[IDADE] Erro ao tratar data de nascimento: {e}")
+
+    # Tenta preencher idade caso não seja data
+    try:
+        for sel in ["input[placeholder='Idade']", "input[placeholder*='idade' i]", "input[placeholder*='age' i]", "input[type='number']"]:
+            if safe_fill(page, sel, str(calcular_idade(nascimento))):
+                print("[IDADE] Idade preenchida")
                 break
-        if preencheu:
-            break
-        human_delay(0.8, 1.5)
+    except:
+        pass
 
-    if not preencheu:
-        try:
-            inputs = page.locator("input[type='text'], input[type='number']").all()
-            if len(inputs) >= 2:
-                inputs[1].fill(str(calcular_idade(nascimento)))
-        except:
-            pass
-
-    human_delay(0.5, 1)
+    human_delay(0.8, 1.5)
     click_concluir(page)
     human_delay(2, 4)
 
