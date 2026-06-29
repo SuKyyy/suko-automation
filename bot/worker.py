@@ -256,7 +256,6 @@ def get_code_from_site(browser, target_email):
         email_page.goto("https://tempmailsuko.shop/pt/infinity")
         human_delay(2, 3)
 
-        # Cola o email
         for sel in ["input[placeholder*='email' i]", "input[type='email']", "input[name='email']"]:
             try:
                 email_page.fill(sel, target_email, timeout=6000)
@@ -266,9 +265,8 @@ def get_code_from_site(browser, target_email):
 
         human_delay(1, 2)
         email_page.keyboard.press("Enter")
-        print("[SITE] Email enviado. Aguardando inbox carregar...")
+        print("[SITE] Email enviado. Aguardando inbox...")
 
-        # Espera bem mais tempo pela inbox
         try:
             email_page.wait_for_selector("text=ChatGPT", timeout=45000)
             print("[SITE] Inbox carregou")
@@ -277,47 +275,34 @@ def get_code_from_site(browser, target_email):
 
         human_delay(2, 3)
 
-        # Tenta clicar no primeiro email da lista de forma agressiva
-        clicked = False
+        # Clica no email mais recente
         try:
-            # Tenta clicar no primeiro item que contenha "ChatGPT"
             email_page.locator("text=ChatGPT").first.click(timeout=8000)
-            clicked = True
-            print("[SITE] Clicou no email via text=ChatGPT")
-        except:
-            pass
-
-        if not clicked:
-            try:
-                # Fallback: clica no primeiro elemento clicável da lista
-                email_page.locator("div, li, tr").first.click(timeout=5000)
-                clicked = True
-                print("[SITE] Clicou no primeiro elemento da lista (fallback)")
-            except:
-                pass
-
-        if clicked:
+            print("[SITE] Clicou no email")
             human_delay(2, 3)
-            print("[SITE] Aguardando código aparecer...")
+        except Exception as e:
+            print(f"[SITE] Erro ao clicar: {e}")
 
-            try:
-                email_page.wait_for_selector("text=CODIGO DETECTADO", timeout=60000)
-                human_delay(1, 2)
+        # Agora procura qualquer número de 6 dígitos na página (mais robusto)
+        try:
+            # Espera um pouco pro código aparecer
+            human_delay(2, 4)
 
-                code_element = email_page.locator("text=CODIGO DETECTADO").first
-                code_text = code_element.inner_text()
+            # Pega todo o texto da página
+            page_text = email_page.content()
 
-                match = re.search(r"\b(\d{6})\b", code_text)
-                if match:
-                    code = match.group(1)
-                    print(f"[SITE] \u2705 Código capturado: {code}")
-                    email_page.close()
-                    return code
+            # Procura número de 6 dígitos
+            match = re.search(r"\b(\d{6})\b", page_text)
+            if match:
+                code = match.group(1)
+                print(f"[SITE] \u2705 Código encontrado na página: {code}")
+                email_page.close()
+                return code
 
-            except:
-                print("[SITE] Não apareceu 'CODIGO DETECTADO' após clicar")
-        else:
-            print("[SITE] Não conseguiu clicar em nenhum email")
+            print("[SITE] Nenhum código de 6 dígitos encontrado na página")
+
+        except Exception as e:
+            print(f"[SITE] Erro ao extrair código: {e}")
 
         if email_page:
             email_page.close()
