@@ -53,6 +53,7 @@ def update_pool_status(user_id, email, status):
         with conn.cursor() as cur:
             cur.execute("UPDATE pool SET status=%s WHERE user_id=%s AND email=%s", (status, user_id, email))
         conn.commit()
+    print(f"[DB] Pool atualizado: {email} -> {status}")
 
 def finish_job(job_id):
     with get_conn() as conn:
@@ -150,7 +151,6 @@ def human_delay(min_s=1.0, max_s=3.5):
     time.sleep(random.uniform(min_s, max_s))
 
 def click_cadastro(page):
-    # Tenta vários seletores comuns do ChatGPT atual
     selectors = [
         "a[href*='signup']",
         "a[href*='register']",
@@ -174,11 +174,7 @@ def click_cadastro(page):
         except:
             continue
 
-    # Fallback mais amplo por texto
-    textos = [
-        "Sign up", "Cadastre-se", "Get started", "Sign up for free",
-        "Cadastre-se gratuitamente", "Create account", "Criar conta"
-    ]
+    textos = ["Sign up", "Cadastre-se", "Get started", "Sign up for free", "Cadastre-se gratuitamente", "Create account", "Criar conta"]
     for texto in textos:
         try:
             page.get_by_text(texto, exact=False).first.click(timeout=5000)
@@ -186,7 +182,6 @@ def click_cadastro(page):
         except:
             continue
 
-    # Último recurso: tenta qualquer botão que pareça de cadastro
     try:
         btns = page.locator("button, a[role='button']").all()
         for btn in btns:
@@ -274,47 +269,39 @@ def wait_for_code(chat_id, job_id, timeout=120):
     return None
 
 def preencher_nome_idade(page, nome, nascimento):
+    # Nome
     for sel in ["input[name='name']", "input[placeholder*='nome' i]", "input[placeholder*='name' i]", "input[type='text']"]:
         if safe_fill(page, sel, nome): break
     human_delay(0.5, 1)
 
+    # Idade - TENTATIVA AGRESSIVA
     preencheu = False
-    for _ in range(4):
-        try:
-            el = page.locator("input[placeholder*='nascimento' i], input[placeholder*='data de nascimento' i], input[placeholder*='birth' i], input[type='date']").first
-            el.wait_for(timeout=2000)
-            el.fill(nascimento)
-            preencheu = True
-            break
-        except:
-            try:
-                el = page.locator("input[type='date']").first
-                el.wait_for(timeout=1500)
-                partes = nascimento.split("/")
-                if len(partes) == 3:
-                    data_iso = f"{partes[2]}-{partes[1]}-{partes[0]}"
-                    el.fill(data_iso)
+    seletores_idade = [
+        "input[placeholder*='idade' i]",
+        "input[placeholder='Idade']",
+        "input[placeholder*='age' i]",
+        "input[name*='age' i]",
+        "input[type='number']",
+        "input[placeholder*='nascimento' i]",
+        "input[placeholder*='data de nascimento' i]",
+        "input[placeholder*='birth' i]",
+        "input[type='date']"
+    ]
+
+    for _ in range(5):  # 5 tentativas
+        for sel in seletores_idade:
+            if safe_fill(page, sel, nascimento if 'data' in sel.lower() or 'nasc' in sel.lower() or 'birth' in sel.lower() else calcular_idade(nascimento)):
                 preencheu = True
                 break
-            except:
-                pass
-
-        try:
-            idade = calcular_idade(nascimento)
-            for sel in ["input[type='number']", "input[placeholder*='idade' i]", "input[placeholder*='age' i]", "input[name*='age' i]"]:
-                if safe_fill(page, sel, idade):
-                    preencheu = True
-                    break
-        except:
-            pass
-
+        if preencheu:
+            break
         human_delay(0.8, 1.5)
 
     if not preencheu:
         try:
             inputs = page.locator("input[type='text'], input[type='number']").all()
             if len(inputs) >= 2:
-                inputs[1].fill(idade)
+                inputs[1].fill(calcular_idade(nascimento))
         except:
             pass
 
@@ -393,9 +380,11 @@ Progresso: [          ] 0%"""
 
                 human_delay(3, 5)
 
+                # === NOVA LÓGICA MAIS DIRETA ===
                 nome_ok = False
                 idade_ok = False
 
+                # Preencher nome
                 try:
                     page.locator("input[name='name'], input[placeholder*='nome' i]").first.fill(nome, timeout=5000)
                     nome_ok = True
@@ -403,36 +392,23 @@ Progresso: [          ] 0%"""
                 except:
                     pass
 
+                # Preencher idade com força
                 if nome_ok:
-                    for _ in range(4):
+                    for tentativa in range(5):
                         try:
-                            el = page.locator("input[placeholder*='nascimento' i], input[placeholder*='data de nascimento' i], input[placeholder*='birth' i], input[type='date']").first
-                            el.wait_for(timeout=2000)
-                            el.fill(nascimento)
-                            idade_ok = True
-                            break
-                        except:
-                            try:
-                                el = page.locator("input[type='date']").first
-                                el.wait_for(timeout=1500)
-                                partes = nascimento.split("/")
-                                if len(partes) == 3:
-                                    data_iso = f"{partes[2]}-{partes[1]}-{partes[0]}"
-                                    el.fill(data_iso)
+                            # Tenta placeholder exato 'Idade'
+                            if safe_fill(page, "input[placeholder='Idade']", calcular_idade(nascimento)):
                                 idade_ok = True
                                 break
-                            except:
-                                pass
-
-                        try:
-                            idade = calcular_idade(nascimento)
-                            for sel in ["input[type='number']", "input[placeholder*='idade' i]", "input[placeholder*='age' i]", "input[name*='age' i]"]:
-                                if safe_fill(page, sel, idade):
+                            # Outros seletores
+                            for sel in ["input[placeholder*='idade' i]", "input[placeholder*='age' i]", "input[type='number']", "input[placeholder*='nascimento' i]", "input[placeholder*='data' i]", "input[type='date']"]:
+                                if safe_fill(page, sel, nascimento if 'data' in sel.lower() or 'nasc' in sel.lower() else calcular_idade(nascimento)):
                                     idade_ok = True
                                     break
+                            if idade_ok:
+                                break
                         except:
                             pass
-
                         human_delay(0.8, 1.5)
 
                 if nome_ok and idade_ok:
