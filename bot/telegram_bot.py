@@ -20,35 +20,6 @@ logger = logging.getLogger(__name__)
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 fragmento_buffer = {}
 
-# ==================== MENUS ====================
-def menu_usuario():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📋 Minha Pool", callback_data="pool"),
-         InlineKeyboardButton("➕ Adicionar", callback_data="add")],
-        [InlineKeyboardButton("🗑️ Limpar Pool", callback_data="clear"),
-         InlineKeyboardButton("📊 Status", callback_data="status")],
-        [InlineKeyboardButton("🚀 Iniciar Job", callback_data="start_job")],
-        [InlineKeyboardButton("📈 Resultados", callback_data="resultados"),
-         InlineKeyboardButton("👤 Perfil", callback_data="perfil")],
-    ])
-
-def menu_admin():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("👥 Usuários", callback_data="adm_usuarios"),
-         InlineKeyboardButton("🌐 Pool Global", callback_data="adm_pool")],
-        [InlineKeyboardButton("⚙️ Jobs Ativos", callback_data="adm_jobs"),
-         InlineKeyboardButton("📈 Resultados", callback_data="adm_resultados")],
-        [InlineKeyboardButton("💰 Preço/Conta", callback_data="adm_preco")],
-        [InlineKeyboardButton("🏠 Menu Usuário", callback_data="menu_user")],
-    ])
-
-def menu_voltar_admin():
-    return InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Admin", callback_data="adm_menu")]])
-
-def menu_voltar_user():
-    return InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Menu", callback_data="menu_user")]])
-
-# ==================== HELPERS ====================
 def gerar_nascimento():
     ano = datetime.date.today().year - 22
     mes = random.randint(1, 12)
@@ -84,7 +55,6 @@ def processar_texto(user_id, text):
             adicionadas.append(f"{email} | {nome}")
     return adicionadas, None
 
-# ==================== HANDLERS ====================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     nome = update.effective_user.first_name or ''
