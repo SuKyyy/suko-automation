@@ -1,30 +1,201 @@
-# Função principal de criação de conta Spotify
-# (placeholder por enquanto - não crasha mais o import)
+import time
+import random
+import re
+import os
+import requests
+from cloakbrowser import launch
 
-def criar_conta_spotify(
-    browser, conta, chat_id, user_id, job_id, preco,
-    send_message_func, edit_message_func, log_resultado_func,
-    update_pool_status_func, ajustar_saldo_func, wait_for_code_manual_func,
-    send_discord_webhook_func
-):
-    """
-    Placeholder para criação de conta no Spotify.
-    Por enquanto só marca como erro e avisa o usuário.
-    """
-    email = conta.get('email', 'desconhecido')
-    print(f"[SPOTIFY] Ainda não implementado. Pulando conta: {email}")
+def human_delay(min_s=1.0, max_s=3.5):
+    time.sleep(random.uniform(min_s, max_s))
 
-    # Marca como erro no pool
+def solve_recaptcha_2captcha(page, site_key, url):
+    """Resolve reCAPTCHA v2 usando 2Captcha"""
+    api_key = os.environ.get("TWOCAPTCHA_API_KEY")
+    if not api_key:
+        print("[SPOTIFY] TWOCAPTCHA_API_KEY não encontrada no .env")
+        return False
+
+    print("[SPOTIFY] Enviando reCAPTCHA para 2Captcha...")
+
     try:
-        update_pool_status_func(user_id, email, "erro")
-        log_resultado_func(user_id, email, "SPOTIFY_NAO_IMPLEMENTADO")
+        # 1. Enviar requisição para 2Captcha
+        resp = requests.post("http://2captcha.com/in.php", data={
+            "key": api_key,
+            "method": "userrecaptcha",
+            "googlekey": site_key,
+            "pageurl": url,
+            "json": 1
+        }, timeout=30).json()
+
+        if resp.get("status") != 1:
+            print(f"[SPOTIFY] Erro ao enviar para 2Captcha: {resp}")
+            return False
+
+        captcha_id = resp["request"]
+        print(f"[SPOTIFY] Captcha ID: {captcha_id} - Aguardando solução...")
+
+        # 2. Esperar a solução (até 120 segundos)
+        for _ in range(24):  # 24 * 5 = 120 segundos
+            time.sleep(5)
+            result = requests.get(
+                f"http://2captcha.com/res.php?key={api_key}&action=get&id={captcha_id}&json=1",
+                timeout=10
+            ).json()
+
+            if result.get("status") == 1:
+                token = result["request"]
+                print(f"[SPOTIFY] ✅ reCAPTCHA resolvido!")
+
+                # 3. Injetar o token na página
+                page.evaluate(f"""
+                    document.getElementById('g-recaptcha-response').innerHTML = '{token}';
+                """)
+                human_delay(1, 2)
+                return True
+
+        print("[SPOTIFY] Timeout esperando solução do 2Captcha")
+        return False
+
     except Exception as e:
-        print(f"[SPOTIFY] Erro ao atualizar status: {e}")
+        print(f"[SPOTIFY] Erro no 2Captcha: {e}")
+        return False
 
-    # Avisa no Telegram
+
+def criar_conta_spotify(browser, conta, chat_id, user_id, job_id, preco, send_message_func, edit_message_func, log_resultado_func, update_pool_status_func, ajustar_saldo_func, wait_for_code_manual_func, send_discord_webhook_func):
+    email = conta['email']
+    senha = conta['senha']
+    nome = conta.get('nome', 'Teste Silva')
+    nascimento = conta.get('nascimento', '20/05/2002')
+
+    print(f"\n=== Criando Spotify: {email} ===")
+
+    progress = f"🎵 {email}\n\nEstado: Iniciando cadastro..."
+    msg_id = send_message_func(chat_id, progress)
+
+    local_browser = launch(headless=False, humanize=True)
+    page = local_browser.new_page()
+
     try:
-        send_message_func(chat_id, f"⚠️ Spotify ainda não está implementado.\n\nConta {email} foi marcada como erro.")
-    except:
-        pass
+        spotify_url = "https://www.spotify.com/br-pt/signup?flow_id=d864602a-00cc-40c3-a265-337e3e97661d%3A1782792365&forward_url=https%3A%2F%2Fwww.spotify.com%2Fbr-pt%2Fpurchase%2Foffer%2Fdefault-intro%2F%3Fcountry%3DBR%26ref%3Dspotifycom_premium_hero%26flow_ctx%3Dd864602a-00cc-40c3-a265-337e3e97661d%253A1782792365"
 
-    return False
+        page.goto(spotify_url)
+        page.wait_for_load_state("networkidle")
+        human_delay(3, 5)
+
+        # === EMAIL ===
+        edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Colocando email...")
+        for sel in ["input#email", "input[name='email']", "input[type='email']"]:
+            try:
+                if page.locator(sel).is_visible(timeout=4000):
+                    page.fill(sel, email)
+                    break
+            except:
+                continue
+
+        page.keyboard.press("Enter")
+        human_delay(4, 6)
+
+        # === SENHA ===
+        edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Colocando senha...")
+        for sel in ["input#password", "input[name='password']", "input[type='password']"]:
+            try:
+                if page.locator(sel).is_visible(timeout=4000):
+                    page.fill(sel, senha)
+                    break
+            except:
+                continue
+
+        page.keyboard.press("Enter")
+        human_delay(4, 6)
+
+        # === NOME ===
+        edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Colocando nome...")
+        for sel in ["input#displayname", "input[name='displayname']"]:
+            try:
+                if page.locator(sel).is_visible(timeout=4000):
+                    page.fill(sel, nome)
+                    break
+            except:
+                continue
+
+        page.keyboard.press("Enter")
+        human_delay(4, 6)
+
+        # === DATA DE NASCIMENTO (usando o que veio da pool) ===
+        edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Preenchendo data de nascimento...")
+
+        try:
+            dia, mes, ano = nascimento.split("/")
+            page.fill("input#day", dia, timeout=5000)
+            human_delay(0.5, 1)
+            page.select_option("select#month", value=mes.zfill(2))
+            human_delay(0.5, 1)
+            page.fill("input#year", ano, timeout=5000)
+            human_delay(1, 2)
+        except Exception as e:
+            print(f"[SPOTIFY] Erro na data de nascimento: {e}")
+
+        # === GÊNERO (Mulher) ===
+        edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Selecionando gênero...")
+        try:
+            page.click("label[for='gender_option_female']", timeout=5000)
+        except:
+            try:
+                page.click("text=Mulher", timeout=4000)
+            except:
+                pass
+
+        human_delay(1, 2)
+
+        # === ACEITAR TERMOS + INSCREVER-SE ===
+        edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Aceitando termos e enviando...")
+
+        try:
+            page.click("input[type='checkbox']", timeout=5000)
+            human_delay(1, 2)
+            page.click("button[type='submit']", timeout=8000)
+            human_delay(5, 7)
+        except:
+            pass
+
+        # === TENTAR RESOLVER reCAPTCHA (se aparecer) ===
+        try:
+            if page.locator("iframe[title*='reCAPTCHA']").is_visible(timeout=6000):
+                print("[SPOTIFY] reCAPTCHA detectado! Tentando resolver...")
+                edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Resolvendo reCAPTCHA...")
+
+                # Pega o sitekey
+                site_key = page.evaluate("() => document.querySelector('.g-recaptcha').getAttribute('data-sitekey')")
+                if site_key:
+                    solved = solve_recaptcha_2captcha(page, site_key, spotify_url)
+                    if solved:
+                        # Clica novamente em Inscrever-se depois de resolver
+                        page.click("button[type='submit']", timeout=6000)
+                        human_delay(6, 8)
+        except:
+            pass
+
+        # Verifica se conseguiu criar
+        if "account" in page.url.lower() or "welcome" in page.content().lower():
+            edit_message_func(chat_id, msg_id, f"🎵 {email}\n\n✅ CONTA CRIADA COM SUCESSO!")
+            log_resultado_func(user_id, email, "SUCESSO")
+            update_pool_status_func(user_id, email, "done")
+            send_discord_webhook_func(email, senha)
+        else:
+            edit_message_func(chat_id, msg_id, f"🎵 {email}\n\n⚠️ Pode precisar de verificação manual (email ou captcha).")
+            log_resultado_func(user_id, email, "VERIFICAR")
+            update_pool_status_func(user_id, email, "verificar")
+
+    except Exception as e:
+        print(f"\n=== ERRO SPOTIFY ===\n{e}")
+        edit_message_func(chat_id, msg_id, f"🎵 {email}\n\n❌ Erro: {str(e)[:80]}")
+        log_resultado_func(user_id, email, "ERRO")
+        update_pool_status_func(user_id, email, "erro")
+        ajustar_saldo_func(chat_id, preco)
+
+    finally:
+        try:
+            page.close()
+            local_browser.close()
+        except:
+            pass
