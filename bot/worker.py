@@ -31,7 +31,7 @@ from bot.gpt.automation import (
     send_discord_webhook
 )
 
-# Import do Spotify (vamos criar depois)
+# Import do Spotify (caso ainda não exista)
 try:
     from bot.spotify.creator import criar_conta_spotify
 except ImportError:
@@ -183,7 +183,7 @@ def run_job(job):
     chat_id = job['chat_id']
     user_id = job['user_id']
     job_id = job['id']
-    service = job.get('service', 'gpt')   # padrão gpt
+    service = job.get('service', 'gpt')
     preco = get_preco()
     pool = get_pool(user_id)
 
@@ -208,35 +208,17 @@ def run_job(job):
                 if service == 'spotify' and criar_conta_spotify:
                     future = executor.submit(
                         criar_conta_spotify,
-                        browser,
-                        conta,
-                        chat_id,
-                        user_id,
-                        job_id,
-                        preco,
-                        send_message,
-                        edit_message,
-                        log_resultado,
-                        update_pool_status,
-                        ajustar_saldo,
-                        wait_for_code_manual,
+                        browser, conta, chat_id, user_id, job_id, preco,
+                        send_message, edit_message, log_resultado,
+                        update_pool_status, ajustar_saldo, wait_for_code_manual,
                         send_discord_webhook
                     )
                 else:
                     future = executor.submit(
                         criar_conta,
-                        browser,
-                        conta,
-                        chat_id,
-                        user_id,
-                        job_id,
-                        preco,
-                        send_message,
-                        edit_message,
-                        log_resultado,
-                        update_pool_status,
-                        ajustar_saldo,
-                        wait_for_code_manual,
+                        browser, conta, chat_id, user_id, job_id, preco,
+                        send_message, edit_message, log_resultado,
+                        update_pool_status, ajustar_saldo, wait_for_code_manual,
                         send_discord_webhook
                     )
 
@@ -262,7 +244,8 @@ def main():
             try:
                 job = get_active_job()
                 if job:
-                    print(f"Job encontrado! ID: {job['id']} | user: {job['user_id']} | service: {job.get('service', 'gpt')}")
+                    service = job.get('service', 'gpt')
+                    print(f"Job encontrado! ID: {job['id']} | user: {job['user_id']} | service: {service}")
                     run_job(job)
                 else:
                     if not shutdown_flag:
