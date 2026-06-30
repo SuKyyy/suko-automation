@@ -64,7 +64,7 @@ def criar_conta_spotify(browser, conta, chat_id, user_id, job_id, preco, send_me
     progress = f"🎵 {email}\n\nEstado: Iniciando cadastro..."
     msg_id = send_message_func(chat_id, progress)
 
-    local_browser = launch(headless=False, humanize=True)
+    local_browser = launch(headless=False, humanize=False)
     page = local_browser.new_page()
 
     try:
