@@ -59,8 +59,8 @@ def processar_texto(user_id, text, service='gpt'):
 
 def menu_principal():
     keyboard = [
-        [InlineKeyboardButton("🤖 ChatGPT", callback_data="menu_gpt")],
-        [InlineKeyboardButton("🎵 Spotify", callback_data="menu_spotify")],
+        [InlineKeyboardButton("🤖 ChatGPT - Criar Contas", callback_data="menu_gpt")],
+        [InlineKeyboardButton("🎵 Spotify - Criar Contas", callback_data="menu_spotify")],
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -117,15 +117,27 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = get_or_create_user(chat_id, nome)
     
     keyboard = [
-        [InlineKeyboardButton("🤖 ChatGPT", callback_data="menu_gpt")],
-        [InlineKeyboardButton("🎵 Spotify", callback_data="menu_spotify")],
+        [InlineKeyboardButton("🤖 ChatGPT - Criar Contas", callback_data="menu_gpt")],
+        [InlineKeyboardButton("🎵 Spotify - Criar Contas", callback_data="menu_spotify")],
     ]
     
     if is_admin(chat_id):
-        keyboard.append([InlineKeyboardButton("⚙️ Menu Admin", callback_data="adm_menu")])
+        keyboard.append([InlineKeyboardButton("⚙️ Menu Administrativo", callback_data="adm_menu")])
+    
+    texto = f"""🔥 *Bem-vindo ao Acc Sukito* - Bot de Criação de Contas
+
+👋 Olá, {nome}!
+
+📌 *Guia Rápido:*
+1. Escolha o serviço (ChatGPT ou Spotify)
+2. Adicione contas na Pool com o formato: `email:senha:Nome`
+3. Clique em "Iniciar Job"
+4. Acompanhe os resultados em tempo real
+
+Escolha uma opção abaixo:"""
     
     await update.message.reply_text(
-        f"🤖 *SuKo-9000*\n\nEscolha o serviço:",
+        texto,
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
