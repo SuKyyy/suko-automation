@@ -35,6 +35,7 @@ def init_db():
                     nome TEXT DEFAULT '',
                     nascimento TEXT DEFAULT '',
                     status TEXT DEFAULT 'pending',
+                    service TEXT DEFAULT 'gpt',
                     criado_em TIMESTAMP DEFAULT NOW(),
                     UNIQUE(user_id, email)
                 );
@@ -44,6 +45,7 @@ def init_db():
                     user_id BIGINT NOT NULL,
                     chat_id BIGINT NOT NULL,
                     status TEXT DEFAULT 'running',
+                    service TEXT DEFAULT 'gpt',
                     criado_em TIMESTAMP DEFAULT NOW()
                 );
 
@@ -63,12 +65,14 @@ def init_db():
                     criado_em TIMESTAMP DEFAULT NOW()
                 );
             """)
-            # Insere preco padrao se nao existir
+
+            # Insere preço padrão se não existir
             cur.execute("""
                 INSERT INTO configuracoes (chave, valor)
                 VALUES ('preco_por_conta', '1.00')
                 ON CONFLICT (chave) DO NOTHING
             """)
+
             # Garante que admins existem
             for admin_id in ADMIN_IDS:
                 cur.execute("""
@@ -76,9 +80,10 @@ def init_db():
                     VALUES (%s, 'Admin', TRUE)
                     ON CONFLICT (chat_id) DO UPDATE SET is_admin = TRUE
                 """, (admin_id,))
+
         conn.commit()
 
-# ==================== USUARIOS ====================
+# ==================== USUÁRIOS ====================
 def get_or_create_user(chat_id, nome=''):
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -109,7 +114,6 @@ def get_all_users():
             return cur.fetchall()
 
 def ajustar_saldo(chat_id, valor):
-    """Soma valor ao saldo (pode ser negativo para subtrair)."""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -137,15 +141,15 @@ def set_preco(preco):
         conn.commit()
 
 # ==================== POOL ====================
-def add_to_pool(user_id, email, senha, nome='', nascimento=''):
+def add_to_pool(user_id, email, senha, nome='', nascimento='', service='gpt'):
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO pool (user_id, email, senha, nome, nascimento, status)
-                VALUES (%s, %s, %s, %s, %s, 'pending')
+                INSERT INTO pool (user_id, email, senha, nome, nascimento, status, service)
+                VALUES (%s, %s, %s, %s, %s, 'pending', %s)
                 ON CONFLICT (user_id, email) DO UPDATE
-                SET senha=%s, nome=%s, nascimento=%s, status='pending'
-            """, (user_id, email, senha, nome, nascimento, senha, nome, nascimento))
+                SET senha = %s, nome = %s, nascimento = %s, status = 'pending', service = %s
+            """, (user_id, email, senha, nome, nascimento, service, senha, nome, nascimento, service))
         conn.commit()
 
 def get_pool(user_id=None):
@@ -182,12 +186,12 @@ def clear_pool(user_id=None):
         conn.commit()
 
 # ==================== JOBS ====================
-def create_job(user_id, chat_id):
+def create_job(user_id, chat_id, service='gpt'):
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO jobs (user_id, chat_id, status) VALUES (%s, %s, 'running') RETURNING id",
-                (user_id, chat_id)
+                "INSERT INTO jobs (user_id, chat_id, status, service) VALUES (%s, %s, 'running', %s) RETURNING id",
+                (user_id, chat_id, service)
             )
             job_id = cur.fetchone()['id']
         conn.commit()
@@ -243,7 +247,7 @@ def is_waiting_code(chat_id):
             row = cur.fetchone()
             return row and row['status'] == 'waiting_code'
 
-# ==================== CODIGOS ====================
+# ==================== CÓDIGOS ====================
 def save_codigo(chat_id, codigo):
     with get_conn() as conn:
         with conn.cursor() as cur:
