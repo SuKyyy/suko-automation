@@ -116,18 +116,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     nome = update.effective_user.first_name or ''
     user = get_or_create_user(chat_id, nome)
     
+    keyboard = [
+        [InlineKeyboardButton("🤖 ChatGPT", callback_data="menu_gpt")],
+        [InlineKeyboardButton("🎵 Spotify", callback_data="menu_spotify")],
+    ]
+    
     if is_admin(chat_id):
-        await update.message.reply_text(
-            f"👑 *Admin Panel* — Bem vindo, {nome}!",
-            parse_mode="Markdown",
-            reply_markup=menu_admin()
-        )
-    else:
-        await update.message.reply_text(
-            f"🤖 *SuKo-9000*\n\nEscolha o serviço:",
-            parse_mode="Markdown",
-            reply_markup=menu_principal()
-        )
+        keyboard.append([InlineKeyboardButton("⚙️ Menu Admin", callback_data="adm_menu")])
+    
+    await update.message.reply_text(
+        f"🤖 *SuKo-9000*\n\nEscolha o serviço:",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
