@@ -450,10 +450,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def run_bot():
     init_db()
     app = Application.builder().token(TOKEN).build()
-    
-    await app.bot.delete_webhook(drop_pending_updates=True)
-    print("Webhook antigo removido.")
-    
+
+    # ====================== CORREÇÃO IMPORTANTE ======================
+    print("Removendo webhook antigo e atualizações pendentes...")
+    try:
+        await app.bot.delete_webhook(drop_pending_updates=True)
+        print("✅ Webhook removido com sucesso.")
+    except Exception as e:
+        print(f"[AVISO] Erro ao remover webhook: {e}")
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
@@ -461,17 +466,22 @@ async def run_bot():
     await app.initialize()
     await app.start()
 
+    # Loop de retry para evitar o erro de Conflict
     retry = 0
     while True:
         try:
+            print("Iniciando polling...")
             await app.updater.start_polling(drop_pending_updates=True)
-            logger.info("🤖 SuKo-9000 rodando!")
+            logger.info("🤖 SuKo-9000 rodando com sucesso!")
             break
         except Conflict:
             retry += 1
-            wait = min(10 * retry, 60)
-            logger.warning(f"Conflito. Aguardando {wait}s...")
-            await asyncio.sleep(wait)
+            wait_time = min(15 * retry, 90)  # espera aumenta a cada tentativa
+            logger.warning(f"Conflito detectado. Aguardando {wait_time}s antes de tentar novamente...")
+            await asyncio.sleep(wait_time)
+        except Exception as e:
+            logger.error(f"Erro inesperado no polling: {e}")
+            await asyncio.sleep(10)
 
     await asyncio.Event().wait()
 
