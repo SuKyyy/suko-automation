@@ -8,7 +8,6 @@ import traceback
 import re
 import requests
 from dotenv import load_dotenv
-
 import concurrent.futures
 
 load_dotenv()
@@ -19,7 +18,7 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
-# ==================== IMPORT DA REFATORAÇÃO ====================
+# ==================== IMPORTS ====================
 from bot.gpt.creator import criar_conta
 from bot.gpt.automation import (
     human_delay,
@@ -31,6 +30,12 @@ from bot.gpt.automation import (
     get_code_from_site,
     send_discord_webhook
 )
+
+# Import do Spotify (vamos criar depois)
+try:
+    from bot.spotify.creator import criar_conta_spotify
+except ImportError:
+    criar_conta_spotify = None
 
 shutdown_flag = False
 
@@ -108,7 +113,7 @@ def get_codigo(chat_id):
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT * FROM codigos WHERE chat_id=%s AND usado=FALSE ORDER BY criado_em DESC LIMIT 1",
-                (chat_id)
+                (chat_id,)
             )
             return cur.fetchone()
 
@@ -158,9 +163,6 @@ def edit_message(chat_id, message_id, text):
     except:
         pass
 
-
-# ==================== FUNÇÕES QUE FICARAM NO WORKER ====================
-
 def wait_for_code_manual(chat_id, job_id, timeout=120):
     print("Aguardando codigo pelo Telegram (manual)...")
     start = time.time()
@@ -175,13 +177,13 @@ def wait_for_code_manual(chat_id, job_id, timeout=120):
         time.sleep(3)
     return None
 
-
 def run_job(job):
     from cloakbrowser import launch
 
     chat_id = job['chat_id']
     user_id = job['user_id']
     job_id = job['id']
+    service = job.get('service', 'gpt')   # padrão gpt
     preco = get_preco()
     pool = get_pool(user_id)
 
@@ -191,32 +193,53 @@ def run_job(job):
         return
 
     total = len(pool)
-    send_message(chat_id, f"Job iniciado! Processando {total} conta(s) em paralelo (máx 2)...")
+    send_message(chat_id, f"Job iniciado! Processando {total} conta(s) de {service.upper()}...")
 
     browser = launch(headless=False, humanize=True)
 
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
             futures = []
+
             for conta in pool:
                 if is_job_cancelled(job_id) or shutdown_flag:
                     break
-                future = executor.submit(
-                    criar_conta,
-                    browser,
-                    conta,
-                    chat_id,
-                    user_id,
-                    job_id,
-                    preco,
-                    send_message,
-                    edit_message,
-                    log_resultado,
-                    update_pool_status,
-                    ajustar_saldo,
-                    wait_for_code_manual,
-                    send_discord_webhook
-                )
+
+                if service == 'spotify' and criar_conta_spotify:
+                    future = executor.submit(
+                        criar_conta_spotify,
+                        browser,
+                        conta,
+                        chat_id,
+                        user_id,
+                        job_id,
+                        preco,
+                        send_message,
+                        edit_message,
+                        log_resultado,
+                        update_pool_status,
+                        ajustar_saldo,
+                        wait_for_code_manual,
+                        send_discord_webhook
+                    )
+                else:
+                    future = executor.submit(
+                        criar_conta,
+                        browser,
+                        conta,
+                        chat_id,
+                        user_id,
+                        job_id,
+                        preco,
+                        send_message,
+                        edit_message,
+                        log_resultado,
+                        update_pool_status,
+                        ajustar_saldo,
+                        wait_for_code_manual,
+                        send_discord_webhook
+                    )
+
                 futures.append(future)
 
             concurrent.futures.wait(futures)
@@ -239,7 +262,7 @@ def main():
             try:
                 job = get_active_job()
                 if job:
-                    print(f"Job encontrado! ID: {job['id']} | user: {job['user_id']}")
+                    print(f"Job encontrado! ID: {job['id']} | user: {job['user_id']} | service: {job.get('service', 'gpt')}")
                     run_job(job)
                 else:
                     if not shutdown_flag:
