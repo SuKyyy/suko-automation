@@ -10,7 +10,7 @@ def human_delay(min_s=1.0, max_s=3.5):
 def solve_recaptcha_2captcha(page, site_key, url):
     api_key = os.environ.get("TWOCAPTCHA_API_KEY")
     if not api_key:
-        print("[SPOTIFY] TWOCAPTCHA_API_KEY não encontrada no .env")
+        print("[SPOTIFY] TWOCAPTCHA_API_KEY não encontrada")
         return False
 
     print("[SPOTIFY] Enviando reCAPTCHA para 2Captcha...")
@@ -25,11 +25,11 @@ def solve_recaptcha_2captcha(page, site_key, url):
         }, timeout=30).json()
 
         if resp.get("status") != 1:
-            print(f"[SPOTIFY] Erro ao enviar para 2Captcha: {resp}")
+            print(f"[SPOTIFY] Erro ao enviar: {resp}")
             return False
 
         captcha_id = resp["request"]
-        print(f"[SPOTIFY] Captcha ID: {captcha_id} - Aguardando solução...")
+        print(f"[SPOTIFY] Captcha ID: {captcha_id} - Aguardando...")
 
         for _ in range(24):
             time.sleep(5)
@@ -64,7 +64,7 @@ def criar_conta_spotify(browser, conta, chat_id, user_id, job_id, preco, send_me
     progress = f"🎵 {email}\n\nEstado: Iniciando cadastro..."
     msg_id = send_message_func(chat_id, progress)
 
-    local_browser = launch(headless=False, humanize=False)
+    local_browser = launch(headless=False, humanize=False)   # ← mais leve
     page = local_browser.new_page()
 
     try:
@@ -74,109 +74,136 @@ def criar_conta_spotify(browser, conta, chat_id, user_id, job_id, preco, send_me
         page.wait_for_load_state("networkidle")
         human_delay(3, 5)
 
-        # === EMAIL ===
+        # ==================== EMAIL ====================
         edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Colocando email...")
         for sel in ["input#email", "input[name='email']", "input[type='email']"]:
             try:
-                page.wait_for_selector(sel, timeout=8000)
+                page.wait_for_selector(sel, timeout=10000)
                 page.fill(sel, email)
                 break
             except:
                 continue
 
-        # Tenta clicar em Next / Continuar
+        # Clica em Next
         try:
-            page.click("button:has-text('Next')", timeout=4000)
+            page.click("button:has-text('Next')", timeout=5000)
         except:
             try:
-                page.click("button:has-text('Continuar')", timeout=4000)
+                page.click("button:has-text('Continuar')", timeout=5000)
             except:
                 page.keyboard.press("Enter")
 
         human_delay(4, 6)
 
-        # === SENHA ===
+        # ==================== SENHA ====================
         edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Colocando senha...")
         for sel in ["input#password", "input[name='password']", "input[type='password']"]:
             try:
-                page.wait_for_selector(sel, timeout=8000)
+                page.wait_for_selector(sel, timeout=10000)
                 page.fill(sel, senha)
                 break
             except:
                 continue
 
         try:
-            page.click("button:has-text('Next')", timeout=4000)
+            page.click("button:has-text('Next')", timeout=5000)
         except:
             try:
-                page.click("button:has-text('Continuar')", timeout=4000)
+                page.click("button:has-text('Continuar')", timeout=5000)
             except:
                 page.keyboard.press("Enter")
 
         human_delay(4, 6)
 
-        # === NOME ===
+        # ==================== NOME ====================
         edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Colocando nome...")
-        for sel in ["input#displayname", "input[name='displayname']"]:
+        nome_preenchido = False
+        for sel in ["input#displayname", "input[name='displayname']", "input[placeholder*='nome' i]"]:
             try:
-                page.wait_for_selector(sel, timeout=6000)
+                page.wait_for_selector(sel, timeout=8000)
                 page.fill(sel, nome)
+                nome_preenchido = True
                 break
             except:
                 continue
 
+        if not nome_preenchido:
+            print("[SPOTIFY] Não conseguiu preencher o nome")
+
         try:
-            page.click("button:has-text('Next')", timeout=4000)
+            page.click("button:has-text('Next')", timeout=5000)
         except:
             page.keyboard.press("Enter")
 
         human_delay(4, 6)
 
-        # === DATA DE NASCIMENTO ===
+        # ==================== DATA DE NASCIMENTO ====================
         edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Preenchendo data de nascimento...")
 
         try:
             dia, mes, ano = nascimento.split("/")
 
-            # Espera o campo do dia aparecer
+            # Espera o campo do dia
             page.wait_for_selector("input#day", timeout=15000)
             page.fill("input#day", dia)
-            human_delay(0.5, 1)
+            human_delay(0.8, 1.5)
 
-            page.select_option("select#month", value=mes.zfill(2))
-            human_delay(0.5, 1)
+            # Mês - várias tentativas
+            mes_preenchido = False
+            for tentativa in range(5):
+                try:
+                    page.wait_for_selector("select#month", timeout=8000)
+                    # Tenta com value primeiro
+                    page.select_option("select#month", value=mes.zfill(2))
+                    mes_preenchido = True
+                    break
+                except:
+                    try:
+                        # Tenta com label (ex: "Maio")
+                        meses = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"]
+                        page.select_option("select#month", label=meses[int(mes)-1])
+                        mes_preenchido = True
+                        break
+                    except:
+                        human_delay(1, 2)
+                        continue
 
+            if not mes_preenchido:
+                print("[SPOTIFY] Não conseguiu selecionar o mês")
+
+            human_delay(0.8, 1.5)
             page.fill("input#year", ano)
             human_delay(1, 2)
+
         except Exception as e:
             print(f"[SPOTIFY] Erro na data de nascimento: {e}")
 
-        # === GÊNERO (Mulher) ===
+        # ==================== GÊNERO ====================
         edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Selecionando gênero...")
         try:
-            page.click("label[for='gender_option_female']", timeout=5000)
+            page.click("label[for='gender_option_female']", timeout=6000)
         except:
             try:
-                page.click("text=Mulher", timeout=4000)
+                page.click("text=Mulher", timeout=5000)
             except:
                 pass
 
         human_delay(1, 2)
 
-        # === TERMOS + INSCREVER-SE ===
+        # ==================== TERMOS + INSCREVER-SE ====================
         edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Aceitando termos...")
 
         try:
-            page.click("input[type='checkbox']", timeout=5000)
+            page.click("input[type='checkbox']", timeout=6000)
             human_delay(1, 2)
             page.click("button[type='submit']", timeout=8000)
-            human_delay(5, 7)
+            human_delay(6, 8)
         except:
             pass
 
         # Tenta resolver reCAPTCHA se aparecer
         try:
-            if page.locator("iframe[title*='reCAPTCHA']").is_visible(timeout=6000):
+            if page.locator("iframe[title*='reCAPTCHA']").is_visible(timeout=8000):
                 edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Resolvendo reCAPTCHA...")
                 site_key = page.evaluate("() => document.querySelector('.g-recaptcha')?.getAttribute('data-sitekey')")
                 if site_key:
@@ -187,7 +214,7 @@ def criar_conta_spotify(browser, conta, chat_id, user_id, job_id, preco, send_me
             pass
 
         # Verificação final
-        if "account" in page.url.lower() or page.locator("text=Welcome").is_visible(timeout=5000):
+        if "account" in page.url.lower() or page.locator("text=Welcome").is_visible(timeout=6000):
             edit_message_func(chat_id, msg_id, f"🎵 {email}\n\n✅ CONTA CRIADA COM SUCESSO!")
             log_resultado_func(user_id, email, "SUCESSO")
             update_pool_status_func(user_id, email, "done")
