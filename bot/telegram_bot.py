@@ -44,14 +44,14 @@ def parse_conta(texto):
             return email, senha, nome
     return None
 
-def processar_texto(user_id, text):
+def processar_texto(user_id, text, service='gpt'):
     adicionadas = []
     linhas = [l.strip() for l in text.splitlines() if l.strip()]
     for linha in linhas:
         resultado = parse_conta(linha)
         if resultado:
             email, senha, nome = resultado
-            add_to_pool(user_id, email, senha, nome, gerar_nascimento())
+            add_to_pool(user_id, email, senha, nome, gerar_nascimento(), service=service)
             adicionadas.append(f"{email} | {nome}")
     return adicionadas, None
 
@@ -169,6 +169,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown",
             reply_markup=menu_gpt()
         )
+        context.user_data['aguardando'] = 'add'
         return
 
     if data == "clear":
@@ -192,7 +193,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if get_active_job(chat_id):
             await query.edit_message_text("⚠️ Já tem um job rodando!", reply_markup=menu_gpt())
             return
-        create_job(chat_id, chat_id)
+        create_job(chat_id, chat_id, service='gpt')
         await query.edit_message_text(
             f"🚀 *Job criado!*\n\n"
             f"Contas na fila: {len(pool)}\n"
@@ -230,6 +231,89 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"✅ Contas criadas: {sucesso}",
             parse_mode="Markdown",
             reply_markup=menu_gpt()
+        )
+        return
+
+    # ==================== SPOTIFY HANDLERS ====================
+    if data == "spotify_pool":
+        pool = get_pool(chat_id)
+        if not pool:
+            texto = "📋 Pool Spotify vazia.\n\nManda: `email:senha:Nome`"
+        else:
+            texto = f"📋 *Pool Spotify ({len(pool)} pendentes):*\n\n"
+            for i, p in enumerate(pool, 1):
+                texto += f"{i}. `{p['email']}`\n"
+        await query.edit_message_text(texto, parse_mode="Markdown", reply_markup=menu_spotify())
+        return
+
+    if data == "spotify_add":
+        await query.edit_message_text(
+            "➕ *Adicionar conta Spotify*\n\nFormato:\n`email:senha:Nome Completo`\n\nVárias de uma vez, uma por linha.",
+            parse_mode="Markdown",
+            reply_markup=menu_spotify()
+        )
+        context.user_data['aguardando'] = 'spotify_add'
+        return
+
+    if data == "spotify_clear":
+        clear_pool(chat_id)
+        await query.edit_message_text("🗑️ Pool Spotify limpa!", reply_markup=menu_spotify())
+        return
+
+    if data == "spotify_start_job":
+        pool = get_pool(chat_id)
+        if not pool:
+            await query.edit_message_text("⚠️ Pool vazia!", reply_markup=menu_spotify())
+            return
+        preco = get_preco()
+        custo = len(pool) * preco
+        if user['saldo'] < preco:
+            await query.edit_message_text(
+                f"❌ Saldo insuficiente.\n💰 Saldo: R$ {user['saldo']:.2f}\n💲 Mínimo: R$ {preco:.2f}",
+                reply_markup=menu_spotify()
+            )
+            return
+        if get_active_job(chat_id):
+            await query.edit_message_text("⚠️ Já tem um job rodando!", reply_markup=menu_spotify())
+            return
+        create_job(chat_id, chat_id, service='spotify')
+        await query.edit_message_text(
+            f"🚀 *Job Spotify criado!*\n\n"
+            f"Contas na fila: {len(pool)}\n"
+            f"Custo máximo: R$ {custo:.2f}\n"
+            f"(Erros são reembolsados automaticamente)",
+            parse_mode="Markdown",
+            reply_markup=menu_spotify()
+        )
+        return
+
+    if data == "spotify_resultados":
+        rows = get_resultados(chat_id)
+        if not rows:
+            texto = "📈 Nenhum resultado ainda."
+        else:
+            texto = "📈 *Seus Resultados:*\n\n"
+            for r in rows:
+                emoji = "✅" if r['status'] == 'SUCESSO' else ("⚠️" if r['status'] == 'VERIFICAR' else "❌")
+                texto += f"{emoji} `{r['email']}` → {r['status']}\n"
+        await query.edit_message_text(texto, parse_mode="Markdown", reply_markup=menu_spotify())
+        return
+
+    if data == "spotify_perfil":
+        preco = get_preco()
+        pool = get_pool(chat_id)
+        resultados = get_resultados(chat_id)
+        sucesso = sum(1 for r in resultados if r['status'] == 'SUCESSO')
+        await query.edit_message_text(
+            f"👤 *Perfil*\n\n"
+            f"ID: `{chat_id}`\n"
+            f"Nome: {user['nome'] or '-'}\n"
+            f"💰 Saldo: R$ {user['saldo']:.2f}\n"
+            f"💲 Preço/conta: R$ {preco:.2f}\n"
+            f"📋 Pool pendente: {len(pool)}\n"
+            f"✅ Contas criadas: {sucesso}",
+            parse_mode="Markdown",
+            reply_markup=menu_spotify()
         )
         return
 
@@ -292,6 +376,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_codigo(chat_id, text.strip())
         await update.message.reply_text("✅ Código salvo! O worker vai pegar automaticamente.")
         return
+
+    # Spotify add handling
+    if aguardando == 'spotify_add':
+        adicionadas, fragmento = processar_texto(chat_id, text, service='spotify')
+        context.user_data['aguardando'] = None
+        if adicionadas:
+            resposta = f"✅ {len(adicionadas)} conta(s) Spotify adicionada(s):\n" + "\n".join(adicionadas)
+            await update.message.reply_text(
+                resposta,
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("📋 Ver Pool Spotify", callback_data="spotify_pool"),
+                    InlineKeyboardButton("🚀 Iniciar Job Spotify", callback_data="spotify_start_job")
+                ]])
+            )
+            return
+        else:
+            await update.message.reply_text(
+                f"❌ Formato inválido.\nUsa: `email:senha:Nome Completo`",
+                parse_mode="Markdown"
+            )
+            return
 
     tem_fragmento = chat_id in fragmento_buffer
     if "@" in text or tem_fragmento:
