@@ -7,6 +7,8 @@ import traceback
 
 from cloakbrowser import launch
 
+from .automation import human_delay, safe_fill, safe_click_text, click_concluir, preencher_nome_idade, get_code_from_site
+
 
 def criar_conta(browser, conta, chat_id, user_id, job_id, preco, send_message_func, edit_message_func, log_resultado_func, update_pool_status_func, ajustar_saldo_func, wait_for_code_manual_func, send_discord_webhook_func):
     email = conta['email']
