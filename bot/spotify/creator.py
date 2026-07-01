@@ -117,7 +117,6 @@ def criar_conta_spotify(browser, conta, chat_id, user_id, job_id, preco, send_me
         # ==================== PÁGINA "FALE DE VOCÊ" ====================
         edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Preenchendo nome...")
 
-        # Nome
         nome_preenchido = False
         for sel in ["input#displayName", "input[name='displayName']"]:
             try:
@@ -133,7 +132,7 @@ def criar_conta_spotify(browser, conta, chat_id, user_id, job_id, preco, send_me
             print("[SPOTIFY] ❌ Falha ao preencher nome")
 
         human_delay(1, 1.5)
-        page.click("body", timeout=3000)   # clique fora para validar
+        page.click("body", timeout=3000)
         human_delay(1, 1.5)
 
         # Data de nascimento
@@ -145,13 +144,12 @@ def criar_conta_spotify(browser, conta, chat_id, user_id, job_id, preco, send_me
             page.fill("input#day", dia)
             human_delay(0.5, 1)
 
-            # Mês com retry
             for _ in range(4):
                 try:
                     page.select_option("select#month", value=str(int(mes)))
                     break
                 except:
-                    human_delay(0.8, 1.2)
+                    human_delay(0.7, 1.2)
 
             human_delay(0.5, 1)
             page.fill("input#year", ano)
@@ -171,7 +169,7 @@ def criar_conta_spotify(browser, conta, chat_id, user_id, job_id, preco, send_me
 
         human_delay(1, 1.5)
 
-        # === AVANÇAR ===
+        # Avançar
         edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Avançando...")
         try:
             page.click("button[data-testid='submit']", timeout=8000)
@@ -186,20 +184,34 @@ def criar_conta_spotify(browser, conta, chat_id, user_id, job_id, preco, send_me
 
         human_delay(6, 8)
 
-        # ==================== PÁGINA DE TERMOS (Etapa 3 de 3) ====================
+        # ==================== PÁGINA DE TERMOS ====================
         edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Aceitando termos...")
 
         try:
-            # Marca o checkbox obrigatório ("O Spotify é um serviço personalizado")
-            page.click("input[type='checkbox']", timeout=8000)
+            # Tenta clicar no label do checkbox de termos (mais confiável)
+            page.click("label:has-text('Termos de Serviço')", timeout=8000)
+            print("[SPOTIFY] ✅ Clicou no label dos Termos")
             human_delay(1, 1.5)
+        except:
+            try:
+                # Alternativa: clicar no checkbox de termos pelo id
+                page.click("input#checkbox-terms", timeout=6000)
+                print("[SPOTIFY] ✅ Clicou no checkbox de termos")
+            except:
+                print("[SPOTIFY] ⚠️ Não encontrou checkbox de termos")
 
-            # Clica no botão verde "Inscrever-se"
+        human_delay(1, 1.5)
+
+        # Clica no botão final "Inscrever-se"
+        try:
             page.click("button:has-text('Inscrever-se')", timeout=8000)
             print("[SPOTIFY] ✅ Clicou em Inscrever-se")
             human_delay(6, 8)
-        except Exception as e:
-            print(f"[SPOTIFY] Erro na página de termos: {e}")
+        except:
+            try:
+                page.click("button[data-testid='submit']", timeout=6000)
+            except:
+                print("[SPOTIFY] ⚠️ Não encontrou botão Inscrever-se")
 
         # Verificação final
         if "account" in page.url.lower() or page.locator("text=Welcome").is_visible(timeout=10000):
