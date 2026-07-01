@@ -132,7 +132,10 @@ def criar_conta_spotify(browser, conta, chat_id, user_id, job_id, preco, send_me
         if not nome_preenchido:
             print("[SPOTIFY] ❌ Não conseguiu preencher o nome")
 
-        human_delay(1, 2)
+        # Clique fora do campo para disparar validação do Spotify
+        human_delay(0.8, 1.2)
+        page.click("body", timeout=3000)
+        human_delay(1, 1.5)
 
         # === DATA DE NASCIMENTO ===
         edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Preenchendo data de nascimento...")
@@ -140,12 +143,10 @@ def criar_conta_spotify(browser, conta, chat_id, user_id, job_id, preco, send_me
         try:
             dia, mes, ano = nascimento.split("/")
 
-            # Dia
             page.wait_for_selector("input#day", timeout=10000)
             page.fill("input#day", dia)
             human_delay(0.5, 1)
 
-            # Mês
             try:
                 page.select_option("select#month", value=mes.zfill(2))
             except:
@@ -156,8 +157,6 @@ def criar_conta_spotify(browser, conta, chat_id, user_id, job_id, preco, send_me
                     print("[SPOTIFY] Não conseguiu selecionar o mês")
 
             human_delay(0.5, 1)
-
-            # Ano
             page.fill("input#year", ano)
             human_delay(1, 2)
 
