@@ -114,55 +114,81 @@ def criar_conta_spotify(browser, conta, chat_id, user_id, job_id, preco, send_me
 
         human_delay(4, 6)
 
-        # ==================== PÁGINA "FALE DE VOCÊ" (Nome + Data + Gênero) ====================
-edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Preenchendo nome...")
+        # ==================== PÁGINA "FALE DE VOCÊ" ====================
+        edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Preenchendo nome...")
 
-# === NOME (seletores atualizados) ===
-nome_preenchido = False
+        # === NOME (seletores atualizados) ===
+        nome_preenchido = False
 
-# Tentativa 1: placeholder mais específico
-try:
-    page.wait_for_selector("input[placeholder*='Este nome aparecerá no seu perfil']", timeout=8000)
-    page.fill("input[placeholder*='Este nome aparecerá no seu perfil']", nome)
-    nome_preenchido = True
-    print("[SPOTIFY] ✅ Nome preenchido (placeholder específico)")
-except:
-    pass
+        # 1. ID mais estável
+        try:
+            page.wait_for_selector("input#displayName", timeout=10000)
+            page.fill("input#displayName", nome)
+            nome_preenchido = True
+            print("[SPOTIFY] ✅ Nome preenchido (id=displayName)")
+        except:
+            pass
 
-# Tentativa 2: data-testid
-if not nome_preenchido:
-    try:
-        page.wait_for_selector("input[data-testid='displayname-input']", timeout=6000)
-        page.fill("input[data-testid='displayname-input']", nome)
-        nome_preenchido = True
-        print("[SPOTIFY] ✅ Nome preenchido (data-testid)")
-    except:
-        pass
+        # 2. name="displayName"
+        if not nome_preenchido:
+            try:
+                page.wait_for_selector("input[name='displayName']", timeout=6000)
+                page.fill("input[name='displayName']", nome)
+                nome_preenchido = True
+                print("[SPOTIFY] ✅ Nome preenchido (name=displayName)")
+            except:
+                pass
 
-# Tentativa 3: id clássico
-if not nome_preenchido:
-    try:
-        page.wait_for_selector("input#displayname", timeout=6000)
-        page.fill("input#displayname", nome)
-        nome_preenchido = True
-        print("[SPOTIFY] ✅ Nome preenchido (id)")
-    except:
-        pass
+        # 3. autocomplete
+        if not nome_preenchido:
+            try:
+                page.wait_for_selector("input[autocomplete='given-name']", timeout=6000)
+                page.fill("input[autocomplete='given-name']", nome)
+                nome_preenchido = True
+                print("[SPOTIFY] ✅ Nome preenchido (autocomplete)")
+            except:
+                pass
 
-# Tentativa 4: placeholder genérico
-if not nome_preenchido:
-    try:
-        page.wait_for_selector("input[placeholder*='nome' i]", timeout=6000)
-        page.fill("input[placeholder*='nome' i]", nome)
-        nome_preenchido = True
-        print("[SPOTIFY] ✅ Nome preenchido (placeholder genérico)")
-    except:
-        pass
+        if not nome_preenchido:
+            print("[SPOTIFY] ❌ Não conseguiu preencher o nome")
 
-if not nome_preenchido:
-    print("[SPOTIFY] ❌ Não conseguiu preencher o nome com nenhum seletor")
+        human_delay(1.2, 2)
 
-human_delay(1.5, 2.5)
+        # Data de nascimento
+        edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Preenchendo data de nascimento...")
+        try:
+            dia, mes, ano = nascimento.split("/")
+
+            page.wait_for_selector("input#day", timeout=10000)
+            page.fill("input#day", dia)
+            human_delay(0.5, 1)
+
+            try:
+                page.select_option("select#month", value=mes.zfill(2))
+            except:
+                try:
+                    meses = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"]
+                    page.select_option("select#month", label=meses[int(mes)-1])
+                except:
+                    print("[SPOTIFY] Não conseguiu selecionar o mês")
+
+            human_delay(0.5, 1)
+            page.fill("input#year", ano)
+            human_delay(1, 2)
+        except Exception as e:
+            print(f"[SPOTIFY] Erro na data de nascimento: {e}")
+
+        # Gênero (Mulher)
+        edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Selecionando gênero...")
+        try:
+            page.click("label[for='gender_option_female']", timeout=6000)
+        except:
+            try:
+                page.click("text=Mulher", timeout=5000)
+            except:
+                pass
+
+        human_delay(1, 2)
 
         # Clica em Avançar
         edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Avançando...")
