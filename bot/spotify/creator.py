@@ -117,52 +117,35 @@ def criar_conta_spotify(browser, conta, chat_id, user_id, job_id, preco, send_me
         # ==================== PÁGINA "FALE DE VOCÊ" ====================
         edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Preenchendo nome...")
 
-        # === NOME (seletores atualizados) ===
+        # === NOME ===
         nome_preenchido = False
-
-        # 1. ID mais estável
-        try:
-            page.wait_for_selector("input#displayName", timeout=10000)
-            page.fill("input#displayName", nome)
-            nome_preenchido = True
-            print("[SPOTIFY] ✅ Nome preenchido (id=displayName)")
-        except:
-            pass
-
-        # 2. name="displayName"
-        if not nome_preenchido:
+        for sel in ["input#displayName", "input[name='displayName']"]:
             try:
-                page.wait_for_selector("input[name='displayName']", timeout=6000)
-                page.fill("input[name='displayName']", nome)
+                page.wait_for_selector(sel, timeout=10000)
+                page.fill(sel, nome)
                 nome_preenchido = True
-                print("[SPOTIFY] ✅ Nome preenchido (name=displayName)")
+                print("[SPOTIFY] ✅ Nome preenchido com sucesso")
+                break
             except:
-                pass
-
-        # 3. autocomplete
-        if not nome_preenchido:
-            try:
-                page.wait_for_selector("input[autocomplete='given-name']", timeout=6000)
-                page.fill("input[autocomplete='given-name']", nome)
-                nome_preenchido = True
-                print("[SPOTIFY] ✅ Nome preenchido (autocomplete)")
-            except:
-                pass
+                continue
 
         if not nome_preenchido:
             print("[SPOTIFY] ❌ Não conseguiu preencher o nome")
 
-        human_delay(1.2, 2)
+        human_delay(1, 2)
 
-        # Data de nascimento
+        # === DATA DE NASCIMENTO ===
         edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Preenchendo data de nascimento...")
+
         try:
             dia, mes, ano = nascimento.split("/")
 
+            # Dia
             page.wait_for_selector("input#day", timeout=10000)
             page.fill("input#day", dia)
             human_delay(0.5, 1)
 
+            # Mês
             try:
                 page.select_option("select#month", value=mes.zfill(2))
             except:
@@ -173,12 +156,15 @@ def criar_conta_spotify(browser, conta, chat_id, user_id, job_id, preco, send_me
                     print("[SPOTIFY] Não conseguiu selecionar o mês")
 
             human_delay(0.5, 1)
+
+            # Ano
             page.fill("input#year", ano)
             human_delay(1, 2)
+
         except Exception as e:
             print(f"[SPOTIFY] Erro na data de nascimento: {e}")
 
-        # Gênero (Mulher)
+        # === GÊNERO (Mulher) ===
         edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Selecionando gênero...")
         try:
             page.click("label[for='gender_option_female']", timeout=6000)
@@ -190,15 +176,18 @@ def criar_conta_spotify(browser, conta, chat_id, user_id, job_id, preco, send_me
 
         human_delay(1, 2)
 
-        # Clica em Avançar
+        # === CLICAR EM AVANÇAR ===
         edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Avançando...")
         try:
-            page.click("button:has-text('Avançar')", timeout=8000)
+            page.click("button[data-testid='submit']", timeout=8000)
         except:
             try:
-                page.click("button[type='submit']", timeout=6000)
+                page.click("button:has-text('Avançar')", timeout=6000)
             except:
-                page.keyboard.press("Enter")
+                try:
+                    page.click("button[type='submit']", timeout=5000)
+                except:
+                    page.keyboard.press("Enter")
 
         human_delay(5, 7)
 
@@ -209,7 +198,7 @@ def criar_conta_spotify(browser, conta, chat_id, user_id, job_id, preco, send_me
                 site_key = page.evaluate("() => document.querySelector('.g-recaptcha')?.getAttribute('data-sitekey')")
                 if site_key:
                     solve_recaptcha_2captcha(page, site_key, spotify_url)
-                    page.click("button:has-text('Avançar')", timeout=6000)
+                    page.click("button[data-testid='submit']", timeout=6000)
                     human_delay(6, 8)
         except:
             pass
