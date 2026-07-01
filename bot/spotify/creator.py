@@ -117,29 +117,27 @@ def criar_conta_spotify(browser, conta, chat_id, user_id, job_id, preco, send_me
         # ==================== PÁGINA "FALE DE VOCÊ" ====================
         edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Preenchendo nome...")
 
-        # === NOME ===
+        # Nome
         nome_preenchido = False
         for sel in ["input#displayName", "input[name='displayName']"]:
             try:
                 page.wait_for_selector(sel, timeout=10000)
                 page.fill(sel, nome)
                 nome_preenchido = True
-                print("[SPOTIFY] ✅ Nome preenchido com sucesso")
+                print("[SPOTIFY] ✅ Nome preenchido")
                 break
             except:
                 continue
 
         if not nome_preenchido:
-            print("[SPOTIFY] ❌ Não conseguiu preencher o nome")
+            print("[SPOTIFY] ❌ Falha ao preencher nome")
 
-        # Clique fora do campo para disparar validação do Spotify
-        human_delay(0.8, 1.2)
-        page.click("body", timeout=3000)
+        human_delay(1, 1.5)
+        page.click("body", timeout=3000)   # clique fora para validar
         human_delay(1, 1.5)
 
-        # === DATA DE NASCIMENTO ===
+        # Data de nascimento
         edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Preenchendo data de nascimento...")
-
         try:
             dia, mes, ano = nascimento.split("/")
 
@@ -147,23 +145,21 @@ def criar_conta_spotify(browser, conta, chat_id, user_id, job_id, preco, send_me
             page.fill("input#day", dia)
             human_delay(0.5, 1)
 
-            try:
-                page.select_option("select#month", value=mes.zfill(2))
-            except:
+            # Mês com retry
+            for _ in range(4):
                 try:
-                    meses = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"]
-                    page.select_option("select#month", label=meses[int(mes)-1])
+                    page.select_option("select#month", value=str(int(mes)))
+                    break
                 except:
-                    print("[SPOTIFY] Não conseguiu selecionar o mês")
+                    human_delay(0.8, 1.2)
 
             human_delay(0.5, 1)
             page.fill("input#year", ano)
-            human_delay(1, 2)
-
+            human_delay(1, 1.5)
         except Exception as e:
-            print(f"[SPOTIFY] Erro na data de nascimento: {e}")
+            print(f"[SPOTIFY] Erro na data: {e}")
 
-        # === GÊNERO (Mulher) ===
+        # Gênero
         edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Selecionando gênero...")
         try:
             page.click("label[for='gender_option_female']", timeout=6000)
@@ -173,9 +169,9 @@ def criar_conta_spotify(browser, conta, chat_id, user_id, job_id, preco, send_me
             except:
                 pass
 
-        human_delay(1, 2)
+        human_delay(1, 1.5)
 
-        # === CLICAR EM AVANÇAR ===
+        # === AVANÇAR ===
         edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Avançando...")
         try:
             page.click("button[data-testid='submit']", timeout=8000)
@@ -188,22 +184,25 @@ def criar_conta_spotify(browser, conta, chat_id, user_id, job_id, preco, send_me
                 except:
                     page.keyboard.press("Enter")
 
-        human_delay(5, 7)
+        human_delay(6, 8)
 
-        # Tenta resolver reCAPTCHA se aparecer
+        # ==================== PÁGINA DE TERMOS (Etapa 3 de 3) ====================
+        edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Aceitando termos...")
+
         try:
-            if page.locator("iframe[title*='reCAPTCHA']").is_visible(timeout=8000):
-                edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Resolvendo reCAPTCHA...")
-                site_key = page.evaluate("() => document.querySelector('.g-recaptcha')?.getAttribute('data-sitekey')")
-                if site_key:
-                    solve_recaptcha_2captcha(page, site_key, spotify_url)
-                    page.click("button[data-testid='submit']", timeout=6000)
-                    human_delay(6, 8)
-        except:
-            pass
+            # Marca o checkbox obrigatório ("O Spotify é um serviço personalizado")
+            page.click("input[type='checkbox']", timeout=8000)
+            human_delay(1, 1.5)
+
+            # Clica no botão verde "Inscrever-se"
+            page.click("button:has-text('Inscrever-se')", timeout=8000)
+            print("[SPOTIFY] ✅ Clicou em Inscrever-se")
+            human_delay(6, 8)
+        except Exception as e:
+            print(f"[SPOTIFY] Erro na página de termos: {e}")
 
         # Verificação final
-        if "account" in page.url.lower() or page.locator("text=Welcome").is_visible(timeout=8000):
+        if "account" in page.url.lower() or page.locator("text=Welcome").is_visible(timeout=10000):
             edit_message_func(chat_id, msg_id, f"🎵 {email}\n\n✅ CONTA CRIADA COM SUCESSO!")
             log_resultado_func(user_id, email, "SUCESSO")
             update_pool_status_func(user_id, email, "done")
