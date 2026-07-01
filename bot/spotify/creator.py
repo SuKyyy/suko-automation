@@ -114,23 +114,28 @@ def criar_conta_spotify(browser, conta, chat_id, user_id, job_id, preco, send_me
 
         human_delay(4, 6)
 
-        # ==================== PÁGINA "FALE DE VOCÊ" (Nome + Data + Gênero juntos) ====================
+        # ==================== PÁGINA "FALE DE VOCÊ" (Nome + Data + Gênero) ====================
         edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Preenchendo nome...")
 
-        # Nome (agora na mesma página da data de nascimento)
+        # Nome - seletores atualizados para o Spotify atual
         nome_preenchido = False
-        for sel in ["input[placeholder*='Este nome aparecerá']", "input[placeholder*='nome']", "input#displayname"]:
+        for sel in [
+            "input[placeholder*='Este nome aparecerá']",
+            "input[placeholder*='nome' i]",
+            "input[data-testid*='displayName']",
+            "input#displayname"
+        ]:
             try:
                 page.wait_for_selector(sel, timeout=10000)
                 page.fill(sel, nome)
                 nome_preenchido = True
-                print("[SPOTIFY] Nome preenchido com sucesso")
+                print("[SPOTIFY] ✅ Nome preenchido com sucesso")
                 break
             except:
                 continue
 
         if not nome_preenchido:
-            print("[SPOTIFY] Não conseguiu preencher o nome")
+            print("[SPOTIFY] ⚠️ Não conseguiu preencher o nome")
 
         human_delay(1, 2)
 
@@ -143,7 +148,7 @@ def criar_conta_spotify(browser, conta, chat_id, user_id, job_id, preco, send_me
             page.fill("input#day", dia)
             human_delay(0.5, 1)
 
-            # Mês - várias tentativas
+            # Mês
             try:
                 page.select_option("select#month", value=mes.zfill(2))
             except:
