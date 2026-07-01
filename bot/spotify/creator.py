@@ -115,66 +115,54 @@ def criar_conta_spotify(browser, conta, chat_id, user_id, job_id, preco, send_me
         human_delay(4, 6)
 
         # ==================== PÁGINA "FALE DE VOCÊ" (Nome + Data + Gênero) ====================
-        edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Preenchendo nome...")
+edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Preenchendo nome...")
 
-        # Nome - seletores atualizados para o Spotify atual
-        nome_preenchido = False
-        for sel in [
-            "input[placeholder*='Este nome aparecerá']",
-            "input[placeholder*='nome' i]",
-            "input[data-testid*='displayName']",
-            "input#displayname"
-        ]:
-            try:
-                page.wait_for_selector(sel, timeout=10000)
-                page.fill(sel, nome)
-                nome_preenchido = True
-                print("[SPOTIFY] ✅ Nome preenchido com sucesso")
-                break
-            except:
-                continue
+# === NOME (seletores atualizados) ===
+nome_preenchido = False
 
-        if not nome_preenchido:
-            print("[SPOTIFY] ⚠️ Não conseguiu preencher o nome")
+# Tentativa 1: placeholder mais específico
+try:
+    page.wait_for_selector("input[placeholder*='Este nome aparecerá no seu perfil']", timeout=8000)
+    page.fill("input[placeholder*='Este nome aparecerá no seu perfil']", nome)
+    nome_preenchido = True
+    print("[SPOTIFY] ✅ Nome preenchido (placeholder específico)")
+except:
+    pass
 
-        human_delay(1, 2)
+# Tentativa 2: data-testid
+if not nome_preenchido:
+    try:
+        page.wait_for_selector("input[data-testid='displayname-input']", timeout=6000)
+        page.fill("input[data-testid='displayname-input']", nome)
+        nome_preenchido = True
+        print("[SPOTIFY] ✅ Nome preenchido (data-testid)")
+    except:
+        pass
 
-        # Data de nascimento
-        edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Preenchendo data de nascimento...")
-        try:
-            dia, mes, ano = nascimento.split("/")
+# Tentativa 3: id clássico
+if not nome_preenchido:
+    try:
+        page.wait_for_selector("input#displayname", timeout=6000)
+        page.fill("input#displayname", nome)
+        nome_preenchido = True
+        print("[SPOTIFY] ✅ Nome preenchido (id)")
+    except:
+        pass
 
-            page.wait_for_selector("input#day", timeout=10000)
-            page.fill("input#day", dia)
-            human_delay(0.5, 1)
+# Tentativa 4: placeholder genérico
+if not nome_preenchido:
+    try:
+        page.wait_for_selector("input[placeholder*='nome' i]", timeout=6000)
+        page.fill("input[placeholder*='nome' i]", nome)
+        nome_preenchido = True
+        print("[SPOTIFY] ✅ Nome preenchido (placeholder genérico)")
+    except:
+        pass
 
-            # Mês
-            try:
-                page.select_option("select#month", value=mes.zfill(2))
-            except:
-                try:
-                    meses = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"]
-                    page.select_option("select#month", label=meses[int(mes)-1])
-                except:
-                    print("[SPOTIFY] Não conseguiu selecionar o mês")
+if not nome_preenchido:
+    print("[SPOTIFY] ❌ Não conseguiu preencher o nome com nenhum seletor")
 
-            human_delay(0.5, 1)
-            page.fill("input#year", ano)
-            human_delay(1, 2)
-        except Exception as e:
-            print(f"[SPOTIFY] Erro na data de nascimento: {e}")
-
-        # Gênero (Mulher)
-        edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Selecionando gênero...")
-        try:
-            page.click("label[for='gender_option_female']", timeout=6000)
-        except:
-            try:
-                page.click("text=Mulher", timeout=5000)
-            except:
-                pass
-
-        human_delay(1, 2)
+human_delay(1.5, 2.5)
 
         # Clica em Avançar
         edit_message_func(chat_id, msg_id, f"🎵 {email}\n\nEstado: Avançando...")
